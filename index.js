@@ -134,12 +134,12 @@ app.get("/", async (req, res) => {
   res.json({ msg: "Hello" });
 });
 
-const nodeBot = "https://node-copy-kappa.vercel.app/";
+const nodeBot = "https://nodecopy.onrender.com/";
 // Ping qilish funksiyasi
 const pingRenderServer = async () => {
   try {
     const res = await fetch(nodeBot);
-    console.log("Vercel Node serverga ping jo'natildi:", res.status);
+    console.log("Render Node serverga ping jo'natildi:", res.status);
   } catch (error) {
     console.error("Pingda xatolik yuz berdi:", error);
   }
