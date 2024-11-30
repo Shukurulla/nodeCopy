@@ -29,14 +29,27 @@ const File = mongoose.model("File", fileSchema);
 const bot = new Telegraf("7361090236:AAFgtyAOaZvJZOx5f6z-X8UrMBAzv7PsacA"); // O'zingizning bot tokeningizni kiriting
 
 // === Fayl yuborish tugmasi ===
+// === Fayl yuborish tugmasi ===
 bot.start((ctx) => {
-  ctx.reply("Salom! Fayl yuborish uchun tugmani bosing.", {
-    reply_markup: {
-      keyboard: [[{ text: "Fayl yuborish" }]],
-      resize_keyboard: true,
-      one_time_keyboard: true,
-    },
-  });
+  ctx.reply(
+    "Salom! Fayl yuborish uchun tugmani bosing yoki faylni bevosita botga yuboring.",
+    {
+      reply_markup: {
+        keyboard: [
+          [{ text: "📂 Fayl yuborish", request_poll: false }], // Fayl yuborish tugmasi
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    }
+  );
+});
+
+// === Fayl yuborish tugmachasiga javob ===
+bot.hears("📂 Fayl yuborish", (ctx) => {
+  ctx.reply(
+    "Iltimos, fayl yuboring. Faqat 'document' fayl turini qabul qilamiz!"
+  );
 });
 
 // === 4 xonali unikal kod yaratish funksiyasi ===
@@ -45,14 +58,17 @@ function generateUniqueCode() {
 }
 
 // === Faqat fayl qabul qilish ===
-bot.on(["document", "photo"], async (ctx) => {
+// === Faqat fayl qabul qilish ===
+bot.on(["document", "photo", "video", "audio", "sticker"], async (ctx) => {
   try {
-    const file = ctx.message.document || ctx.message.photo.pop();
+    const file = ctx.message.document || ctx.message.photo?.pop();
     const fileType = ctx.message.document ? "document" : "photo";
 
     // Fayl turini tekshirish
-    if (!["document", "photo"].includes(fileType)) {
-      return ctx.reply("Faqat document yoki rasm yuborishingiz mumkin.");
+    if (!ctx.message.document) {
+      return ctx.reply(
+        "Faqat 'document' (hujjat) turidagi fayllarni yuborishingiz mumkin. Video, musiqa, yoki boshqa fayl turlari printerda chiqarib bo'lmaydi."
+      );
     }
 
     // 4 xonali unikal kod yaratish
@@ -61,7 +77,7 @@ bot.on(["document", "photo"], async (ctx) => {
     // Faylni yuklash va saqlash
     const fileData = {
       fileId: file.file_id,
-      fileName: file.file_name || `photo_${Date.now()}.jpg`,
+      fileName: file.file_name || `document_${Date.now()}`,
       fileType,
       uniqueCode,
     };
