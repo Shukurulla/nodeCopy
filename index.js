@@ -134,6 +134,20 @@ app.get("/", async (req, res) => {
   res.json({ msg: "Hello" });
 });
 
+const nodeBot = "https://node-copy-kappa.vercel.app/";
+// Ping qilish funksiyasi
+const pingRenderServer = async () => {
+  try {
+    const res = await fetch(nodeBot);
+    console.log("Vercel Node serverga ping jo'natildi:", res.status);
+  } catch (error) {
+    console.error("Pingda xatolik yuz berdi:", error);
+  }
+};
+
+// Har 1 daqiqada ping qilish
+setInterval(pingRenderServer, 60000);
+
 app.listen(3001, () => {
   console.log("server 3001 portda ishga tushdi");
 });
