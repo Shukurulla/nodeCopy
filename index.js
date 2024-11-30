@@ -32,23 +32,7 @@ const bot = new Telegraf("7361090236:AAFgtyAOaZvJZOx5f6z-X8UrMBAzv7PsacA"); // O
 // === Fayl yuborish tugmasi ===
 bot.start((ctx) => {
   ctx.reply(
-    "Salom! Fayl yuborish uchun tugmani bosing yoki faylni bevosita botga yuboring.",
-    {
-      reply_markup: {
-        keyboard: [
-          [{ text: "📂 Fayl yuborish", request_poll: false }], // Fayl yuborish tugmasi
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      },
-    }
-  );
-});
-
-// === Fayl yuborish tugmachasiga javob ===
-bot.hears("📂 Fayl yuborish", (ctx) => {
-  ctx.reply(
-    "Iltimos, fayl yuboring. Faqat 'document' fayl turini qabul qilamiz!"
+    "Salom! Fayl yuborish uchun tugmani bosing yoki faylni bevosita botga yuboring."
   );
 });
 
@@ -147,7 +131,7 @@ bot.command("print", async (ctx) => {
 bot.launch();
 
 app.get("/", async (req, res) => {
-  res.json({ msg: "Helle" });
+  res.json({ msg: "Hello" });
 });
 
 app.listen(3001, () => {
