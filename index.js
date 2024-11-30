@@ -1,0 +1,126 @@
+import { Telegraf } from "telegraf";
+import mongoose from "mongoose";
+import { config } from "dotenv";
+config();
+// === MongoDB Sozlamalari ===
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+const fileSchema = new mongoose.Schema({
+  fileId: String,
+  fileName: String,
+  fileType: String,
+  uniqueCode: String,
+  uploadedAt: { type: Date, default: Date.now },
+});
+
+const File = mongoose.model("File", fileSchema);
+
+// === Telegram Botni sozlash ===
+const bot = new Telegraf("7361090236:AAFgtyAOaZvJZOx5f6z-X8UrMBAzv7PsacA"); // O'zingizning bot tokeningizni kiriting
+
+// === Fayl yuborish tugmasi ===
+bot.start((ctx) => {
+  ctx.reply("Salom! Fayl yuborish uchun tugmani bosing.", {
+    reply_markup: {
+      keyboard: [[{ text: "Fayl yuborish" }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
+  });
+});
+
+// === 4 xonali unikal kod yaratish funksiyasi ===
+function generateUniqueCode() {
+  return Math.floor(1000 + Math.random() * 9000).toString();
+}
+
+// === Faqat fayl qabul qilish ===
+bot.on(["document", "photo"], async (ctx) => {
+  try {
+    const file = ctx.message.document || ctx.message.photo.pop();
+    const fileType = ctx.message.document ? "document" : "photo";
+
+    // Fayl turini tekshirish
+    if (!["document", "photo"].includes(fileType)) {
+      return ctx.reply("Faqat document yoki rasm yuborishingiz mumkin.");
+    }
+
+    // 4 xonali unikal kod yaratish
+    const uniqueCode = generateUniqueCode();
+
+    // Faylni yuklash va saqlash
+    const fileData = {
+      fileId: file.file_id,
+      fileName: file.file_name || `photo_${Date.now()}.jpg`,
+      fileType,
+      uniqueCode,
+    };
+
+    // MongoDB-ga saqlash
+    const savedFile = new File(fileData);
+    await savedFile.save();
+
+    // Foydalanuvchiga unikal kod yuborish va faylni qayta jo'natish
+    await ctx.reply(
+      `Fayl qabul qilindi! Unikal kod: ${uniqueCode}. Ushbu kodni nusxa chiqarishda kiriting.`
+    );
+    await ctx.telegram.sendDocument(ctx.chat.id, file.file_id);
+
+    // Faylni apparatga yuborish (API chaqiruv)
+    sendFileToPrinter(fileData);
+  } catch (error) {
+    console.error(error);
+    ctx.reply("Faylni qabul qilishda xatolik yuz berdi.");
+  }
+});
+
+// === Apparatga faylni yuborish ===
+function sendFileToPrinter(fileData) {
+  // Bu yerda apparatning API funksiyasini chaqirishingiz kerak.
+  // Masalan, faylni o'qing va boshqa joyga yuboring.
+  console.log(`Fayl apparatga yuborilmoqda:`, fileData);
+
+  // Bu bo'limda real API chaqiruv yoziladi.
+  // Masalan:
+  // axios.post('http://printer-api/print', fileData);
+}
+
+// === Nusxa chiqarishni tasdiqlash ===
+bot.command("print", async (ctx) => {
+  try {
+    const { text } = ctx.message;
+    const uniqueCode = text.split(" ")[1];
+
+    if (!uniqueCode) {
+      return ctx.reply(
+        "Nusxa chiqarish uchun unikal kodni kiriting: /print YOUR_CODE"
+      );
+    }
+
+    const file = await File.findOne({ uniqueCode });
+
+    if (!file) {
+      return ctx.reply("Bunday unikal kodga ega fayl topilmadi.");
+    }
+
+    ctx.reply(`Fayl nusxa chiqarilmoqda: ${file.fileName}`);
+
+    // Faylni apparatga yuborish uchun API chaqiruvini qo'shing.
+    // sendFileToPrinter(file);
+
+    // Faylni nusxa chiqarish yakunlangach o'chirish
+    await File.deleteOne({ uniqueCode });
+    ctx.reply("Fayl muvaffaqiyatli o'chirildi!");
+  } catch (error) {
+    console.error(error);
+    ctx.reply("Nusxa chiqarish vaqtida xatolik yuz berdi.");
+  }
+});
+
+// === Botni ishga tushirish ===
+bot.launch();
+
+console.log("Bot ishga tushdi!");
