@@ -1,12 +1,19 @@
 import { Telegraf } from "telegraf";
 import mongoose from "mongoose";
 import { config } from "dotenv";
+import express from "express";
 config();
 // === MongoDB Sozlamalari ===
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => {
+    console.log("dataBase connected");
+  });
+
+const app = express();
 
 const fileSchema = new mongoose.Schema({
   fileId: String,
@@ -122,5 +129,13 @@ bot.command("print", async (ctx) => {
 
 // === Botni ishga tushirish ===
 bot.launch();
+
+app.get("/", async (req, res) => {
+  res.json({ msg: "Helle" });
+});
+
+app.listen(3001, () => {
+  console.log("server 3001 portda ishga tushdi");
+});
 
 console.log("Bot ishga tushdi!");
