@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { config } from "dotenv";
 import express from "express";
 config();
+
 // === MongoDB Sozlamalari ===
 mongoose
   .connect(process.env.MONGO_URI, {
@@ -26,13 +27,12 @@ const fileSchema = new mongoose.Schema({
 const File = mongoose.model("File", fileSchema);
 
 // === Telegram Botni sozlash ===
-const bot = new Telegraf("7361090236:AAFgtyAOaZvJZOx5f6z-X8UrMBAzv7PsacA"); // O'zingizning bot tokeningizni kiriting
+const bot = new Telegraf(process.env.BOT_TOKEN); // O'zingizning bot tokeningizni `.env` faylida saqlang
 
-// === Fayl yuborish tugmasi ===
 // === Fayl yuborish tugmasi ===
 bot.start((ctx) => {
   ctx.reply(
-    "Salom! Fayl yuborish uchun tugmani bosing yoki faylni bevosita botga yuboring."
+    "Salom! Faqat hujjatlar (masalan, PDF, DOCX, EXCEL) fayllarini yuborishingiz mumkin."
   );
 });
 
@@ -41,17 +41,24 @@ function generateUniqueCode() {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
-// === Faqat fayl qabul qilish ===
-// === Faqat fayl qabul qilish ===
-bot.on(["document", "photo", "video", "audio", "sticker"], async (ctx) => {
+// === Ruxsat etilgan fayl turlari ro'yxati ===
+const allowedFileTypes = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/msword",
+];
+
+// === Fayllarni qabul qilish ===
+bot.on("document", async (ctx) => {
   try {
-    const file = ctx.message.document || ctx.message.photo?.pop();
-    const fileType = ctx.message.document ? "document" : "photo";
+    // Fayl ma'lumotlarini olish
+    const file = ctx.message.document;
 
     // Fayl turini tekshirish
-    if (!ctx.message.document) {
+    if (!allowedFileTypes.includes(file.mime_type)) {
       return ctx.reply(
-        "Faqat 'document' (hujjat) turidagi fayllarni yuborishingiz mumkin. Video, musiqa, yoki boshqa fayl turlari printerda chiqarib bo'lmaydi."
+        "Faqat quyidagi fayl turlari qabul qilinadi: PDF, DOCX, EXCEL."
       );
     }
 
@@ -61,8 +68,8 @@ bot.on(["document", "photo", "video", "audio", "sticker"], async (ctx) => {
     // Faylni yuklash va saqlash
     const fileData = {
       fileId: file.file_id,
-      fileName: file.file_name || `document_${Date.now()}`,
-      fileType,
+      fileName: file.file_name || `file_${Date.now()}`,
+      fileType: file.mime_type,
       uniqueCode,
     };
 
@@ -86,13 +93,8 @@ bot.on(["document", "photo", "video", "audio", "sticker"], async (ctx) => {
 
 // === Apparatga faylni yuborish ===
 function sendFileToPrinter(fileData) {
-  // Bu yerda apparatning API funksiyasini chaqirishingiz kerak.
-  // Masalan, faylni o'qing va boshqa joyga yuboring.
   console.log(`Fayl apparatga yuborilmoqda:`, fileData);
-
   // Bu bo'limda real API chaqiruv yoziladi.
-  // Masalan:
-  // axios.post('http://printer-api/print', fileData);
 }
 
 // === Nusxa chiqarishni tasdiqlash ===
