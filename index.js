@@ -2,6 +2,10 @@ import { Telegraf } from "telegraf";
 import mongoose from "mongoose";
 import { config } from "dotenv";
 import express from "express";
+import http from "http";
+import { Server } from "socket.io";
+import axios from "axios";
+
 config();
 
 // === MongoDB Sozlamalari ===
@@ -15,7 +19,14 @@ mongoose
   });
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Zarur bo'lsa, qaysi domenlarga ruxsat berilishini aniqlang
+  },
+});
 
+// === Fayl modeli ===
 const fileSchema = new mongoose.Schema({
   fileId: String,
   fileName: String,
@@ -27,9 +38,9 @@ const fileSchema = new mongoose.Schema({
 const File = mongoose.model("File", fileSchema);
 
 // === Telegram Botni sozlash ===
-const bot = new Telegraf(process.env.BOT_TOKEN); // O'zingizning bot tokeningizni `.env` faylida saqlang
+const bot = new Telegraf(process.env.BOT_TOKEN); // Bot tokeningizni `.env` faylida saqlang
 
-// === Fayl yuborish tugmasi ===
+// === Fayl qabul qilish tugmasi ===
 bot.start((ctx) => {
   ctx.reply(
     "Salom! Faqat hujjatlar (masalan, PDF, DOCX, EXCEL) fayllarini yuborishingiz mumkin."
@@ -52,20 +63,16 @@ const allowedFileTypes = [
 // === Fayllarni qabul qilish ===
 bot.on("document", async (ctx) => {
   try {
-    // Fayl ma'lumotlarini olish
     const file = ctx.message.document;
 
-    // Fayl turini tekshirish
     if (!allowedFileTypes.includes(file.mime_type)) {
       return ctx.reply(
         "Faqat quyidagi fayl turlari qabul qilinadi: PDF, DOCX, EXCEL."
       );
     }
 
-    // 4 xonali unikal kod yaratish
     const uniqueCode = generateUniqueCode();
 
-    // Faylni yuklash va saqlash
     const fileData = {
       fileId: file.file_id,
       fileName: file.file_name || `file_${Date.now()}`,
@@ -73,85 +80,76 @@ bot.on("document", async (ctx) => {
       uniqueCode,
     };
 
-    // MongoDB-ga saqlash
     const savedFile = new File(fileData);
     await savedFile.save();
 
-    // Foydalanuvchiga unikal kod yuborish va faylni qayta jo'natish
     await ctx.reply(
       `Fayl qabul qilindi! Unikal kod: ${uniqueCode}. Ushbu kodni nusxa chiqarishda kiriting.`
     );
+
     await ctx.telegram.sendDocument(ctx.chat.id, file.file_id);
 
-    // Faylni apparatga yuborish (API chaqiruv)
-    sendFileToPrinter(fileData);
+    // === Faylni apparatga real vaqt rejimida yuborish ===
+    io.emit("newFile", fileData); // Faylni apparatga yuborish uchun event
   } catch (error) {
     console.error(error);
     ctx.reply("Faylni qabul qilishda xatolik yuz berdi.");
   }
 });
 
-// === Apparatga faylni yuborish ===
-function sendFileToPrinter(fileData) {
-  console.log(`Fayl apparatga yuborilmoqda:`, fileData);
-  // Bu bo'limda real API chaqiruv yoziladi.
+// === Fayllarni yuklab olish uchun link yaratish ===
+async function getFileLink(bot, fileId) {
+  const file = await bot.telegram.getFile(fileId);
+  return `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
 }
 
-// === Nusxa chiqarishni tasdiqlash ===
-bot.command("print", async (ctx) => {
+app.get("/files", async (req, res) => {
   try {
-    const { text } = ctx.message;
-    const uniqueCode = text.split(" ")[1];
-
-    if (!uniqueCode) {
-      return ctx.reply(
-        "Nusxa chiqarish uchun unikal kodni kiriting: /print YOUR_CODE"
-      );
-    }
-
-    const file = await File.findOne({ uniqueCode });
-
-    if (!file) {
-      return ctx.reply("Bunday unikal kodga ega fayl topilmadi.");
-    }
-
-    ctx.reply(`Fayl nusxa chiqarilmoqda: ${file.fileName}`);
-
-    // Faylni apparatga yuborish uchun API chaqiruvini qo'shing.
-    // sendFileToPrinter(file);
-
-    // Faylni nusxa chiqarish yakunlangach o'chirish
-    await File.deleteOne({ uniqueCode });
-    ctx.reply("Fayl muvaffaqiyatli o'chirildi!");
+    const files = await File.find();
+    const filesWithLinks = await Promise.all(
+      files.map(async (file) => {
+        const fileLink = await getFileLink(bot, file.fileId);
+        return {
+          ...file.toObject(),
+          fileLink,
+        };
+      })
+    );
+    res.json(filesWithLinks);
   } catch (error) {
     console.error(error);
-    ctx.reply("Nusxa chiqarish vaqtida xatolik yuz berdi.");
+    res.status(500).json({ error: "Fayllarni olishda xatolik yuz berdi." });
   }
 });
 
-// === Botni ishga tushirish ===
-bot.launch();
-
-app.get("/", async (req, res) => {
-  res.json({ msg: "Hello" });
-});
-
-const nodeBot = "https://nodecopy.onrender.com/";
-// Ping qilish funksiyasi
-const pingRenderServer = async () => {
+app.get("/download/:fileId", async (req, res) => {
   try {
-    const res = await fetch(nodeBot);
-    console.log("Render Node serverga ping jo'natildi:", res.status);
+    const file = await File.findOne({ fileId: req.params.fileId });
+    if (!file) {
+      return res.status(404).json({ error: "Fayl topilmadi" });
+    }
+
+    const fileLink = await getFileLink(bot, file.fileId);
+
+    const response = await axios({
+      method: "get",
+      url: fileLink,
+      responseType: "stream",
+    });
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=${file.fileName}`
+    );
+    res.setHeader("Content-Type", file.fileType);
+
+    response.data.pipe(res);
   } catch (error) {
-    console.error("Pingda xatolik yuz berdi:", error);
+    console.error(error);
+    res.status(500).json({ error: "Faylni yuklashda xatolik yuz berdi." });
   }
-};
-
-// Har 1 daqiqada ping qilish
-setInterval(pingRenderServer, 60000);
-
-app.listen(3001, () => {
-  console.log("server 3001 portda ishga tushdi");
 });
-
-console.log("Bot ishga tushdi!");
+// === HTTP serverni ishga tushirish ===
+server.listen(3001, () => {
+  console.log("Server 3001 portda ishga tushdi");
+});
