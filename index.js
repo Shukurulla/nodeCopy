@@ -44,6 +44,10 @@ const File = mongoose.model("File", fileSchema);
 // === Telegram Botni sozlash ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
+const webhookPath = `/bot${process.env.BOT_TOKEN}`;
+const webhookUrl = `https://nodecopy-1.onrender.com/${webhookPath}`;
+
+bot.telegram.setWebhook(webhookUrl);
 // === Unikal kod yaratish funksiyasi ===
 function generateUniqueCode() {
   return Math.floor(1000 + Math.random() * 9000).toString();
@@ -220,9 +224,9 @@ app.get("/ping", async (req, res) => {
   } catch (error) {}
 });
 
+app.use(bot.webhookCallback(webhookPath));
+
 // === HTTP serverni ishga tushirish ===
 server.listen(3001, () => {
   console.log("Server 3001 portda ishga tushdi");
 });
-
-bot.launch();
