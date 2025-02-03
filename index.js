@@ -45,7 +45,7 @@ const File = mongoose.model("File", fileSchema);
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const webhookPath = `/bot${process.env.BOT_TOKEN}`;
-const webhookUrl = `https://nodecopy-1.onrender.com/${webhookPath}`;
+const webhookUrl = `http://45.134.39.117:8000/${webhookPath}`;
 
 bot.telegram.setWebhook(webhookUrl);
 // === Unikal kod yaratish funksiyasi ===
