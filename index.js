@@ -227,6 +227,6 @@ app.get("/ping", async (req, res) => {
 app.use(bot.webhookCallback(webhookPath));
 
 // === HTTP serverni ishga tushirish ===
-server.listen(8000, () => {
-  console.log("Server 3001 portda ishga tushdi");
+server.listen(8001, () => {
+  console.log("Server 8001 portda ishga tushdi");
 });
