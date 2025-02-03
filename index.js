@@ -5,6 +5,8 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import axios from "axios";
+import fs from "fs";
+import https from "https";
 
 config();
 
@@ -201,7 +203,17 @@ app.get("/download/:fileId", async (req, res) => {
   }
 });
 
-// HTTP serverni ishga tushirish
-server.listen(8002, () => {
-  console.log("Server 8002 portda ishga tushdi");
+// Botni polling rejimida ishga tushirish
+bot.launch({
+  polling: {
+    interval: 300,
+    timeout: 10,
+    limit: 100,
+  },
+});
+
+// Serverni ishga tushurish
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server ${PORT}-portda ishlayapti`);
 });
