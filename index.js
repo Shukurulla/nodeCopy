@@ -5,8 +5,6 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import axios from "axios";
-import fs from "fs";
-import https from "https";
 
 config();
 
@@ -45,18 +43,6 @@ const File = mongoose.model("File", fileSchema);
 
 // === Telegram Botni sozlash ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
-
-// HTTPS server yaratish
-const httpsOptions = {
-  key: fs.readFileSync("/path/to/your/private-key.pem"), // sertifikat fayli
-  cert: fs.readFileSync("/path/to/your/certificate.pem"), // sertifikat fayli
-};
-
-const webhookPath = `/bot${process.env.BOT_TOKEN}`;
-const webhookUrl = `https://45.134.39.117:8000/${webhookPath}`;
-
-// Telegram webhook URL ni HTTPSga o'zgartirdik
-bot.telegram.setWebhook(webhookUrl);
 
 // === Unikal kod yaratish funksiyasi ===
 function generateUniqueCode() {
@@ -215,27 +201,7 @@ app.get("/download/:fileId", async (req, res) => {
   }
 });
 
-const renderUrl = "https://nodecopy-1.onrender.com/ping";
-// Ping qilish funksiyasi
-const pingRenderServer = async () => {
-  try {
-    const response = await fetch(renderUrl);
-    console.log("Render serverga ping jo'natildi:", response.status);
-  } catch (error) {
-    console.error("Pingda xatolik yuz berdi:", error);
-  }
-};
-
-// Har 1 daqiqada ping qilish
-setInterval(pingRenderServer, 60000);
-
-app.get("/ping", async (req, res) => {
-  try {
-    res.json({ msg: "ping jonatildi" });
-  } catch (error) {}
-});
-
-// HTTPS serverni ishga tushirish
-https.createServer(httpsOptions, app).listen(8002, () => {
+// HTTP serverni ishga tushirish
+server.listen(8002, () => {
   console.log("Server 8002 portda ishga tushdi");
 });
