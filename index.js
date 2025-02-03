@@ -213,7 +213,7 @@ bot.launch({
 });
 
 // Serverni ishga tushurish
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8002;
 server.listen(PORT, () => {
   console.log(`Server ${PORT}-portda ishlayapti`);
 });
