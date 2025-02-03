@@ -5,6 +5,8 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import axios from "axios";
+import fs from "fs";
+import https from "https";
 
 config();
 
@@ -44,10 +46,18 @@ const File = mongoose.model("File", fileSchema);
 // === Telegram Botni sozlash ===
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-const webhookPath = `/bot${process.env.BOT_TOKEN}`;
-const webhookUrl = `http://45.134.39.117:8000/${webhookPath}`;
+// HTTPS server yaratish
+const httpsOptions = {
+  key: fs.readFileSync("/path/to/your/private-key.pem"), // sertifikat fayli
+  cert: fs.readFileSync("/path/to/your/certificate.pem"), // sertifikat fayli
+};
 
+const webhookPath = `/bot${process.env.BOT_TOKEN}`;
+const webhookUrl = `https://45.134.39.117:8000/${webhookPath}`;
+
+// Telegram webhook URL ni HTTPSga o'zgartirdik
 bot.telegram.setWebhook(webhookUrl);
+
 // === Unikal kod yaratish funksiyasi ===
 function generateUniqueCode() {
   return Math.floor(1000 + Math.random() * 9000).toString();
@@ -139,6 +149,7 @@ Ushbu kodni saqlab qo'ying.`;
     ctx.reply("Faylni qabul qilishda xatolik yuz berdi.");
   }
 });
+
 // === Fayllarni yuklab olish uchun link yaratish ===
 async function getFileLink(bot, fileId) {
   const file = await bot.telegram.getFile(fileId);
@@ -224,9 +235,7 @@ app.get("/ping", async (req, res) => {
   } catch (error) {}
 });
 
-app.use(bot.webhookCallback(webhookPath));
-
-// === HTTP serverni ishga tushirish ===
-server.listen(8002, () => {
+// HTTPS serverni ishga tushirish
+https.createServer(httpsOptions, app).listen(8002, () => {
   console.log("Server 8002 portda ishga tushdi");
 });
