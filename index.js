@@ -56,9 +56,6 @@ const allowedFileTypes = [
   "application/msword",
 ];
 
-const WEBHOOK_DOMAIN = "http://45.134.39.117:8002";
-const WEBHOOK_PATH = `/bot${process.env.BOT_TOKEN}`;
-
 const usersReadyToSendFiles = new Set();
 
 bot.start((ctx) => {
@@ -168,12 +165,6 @@ const getFileLink = async (fileId) => {
   return `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
 };
 
-app.post(WEBHOOK_PATH, (req, res) => {
-  bot.handleUpdate(req.body);
-  res.sendStatus(200);
-});
-bot.telegram.setWebhook(`${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`);
-
 app.use("/scan-file", ScanFileRouter);
 
 app.get("/files", async (req, res) => {
@@ -212,12 +203,8 @@ app.get("/download/:fileId", async (req, res) => {
   }
 });
 
-bot.launch({
-  webhook: {
-    domain: "http://45.134.39.117:8002",
-    port: 8002,
-  },
-});
+// Long polling orqali botni ishga tushirish
+bot.launch();
 
 const PORT = process.env.PORT || 8002;
 server.listen(PORT, () => console.log(`Server ${PORT}-portda ishlayapti`));
