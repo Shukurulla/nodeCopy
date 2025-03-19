@@ -5,6 +5,10 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import axios from "axios";
+import cors from "cors";
+
+import ScanFileRouter from "./router/scanFile.routes.js";
+import scanFileModel from "./model/scanFile.model.js";
 
 config();
 
@@ -16,6 +20,14 @@ mongoose
   .then(() => console.log("Database connected"));
 
 const app = express();
+app.use(
+  cors({
+    origin: "*",
+  })
+);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
@@ -47,13 +59,37 @@ const usersReadyToSendFiles = new Set();
 
 bot.start((ctx) => {
   ctx.reply(
-    `Salom, ${
-      ctx.from.first_name || "foydalanuvchi"
-    }!\n📂 Fayl yuborish uchun quyidagi tugmani bosing.`,
-    Markup.keyboard([["📤 Fayl yuborish"]])
+    `Salom, ${ctx.from.first_name || "foydalanuvchi"}!
+📂 Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.`,
+    Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
       .resize()
       .oneTime()
   );
+});
+
+bot.hears("📋 Scan faylni olish", (ctx) => {
+  ctx.reply("Iltimos, kodni kiriting.");
+  bot.on("text", async (ctx) => {
+    const code = ctx.message.text.trim();
+    try {
+      const file = await scanFileModel.findOne({ code });
+      if (!file) {
+        return ctx.reply("Kechirasiz, ushbu kodga mos fayl topilmadi.");
+      }
+
+      await ctx.replyWithDocument(
+        { source: file.file },
+        {
+          caption: `📁 Fayl topildi!
+🔑 Kod: ${file.code}
+⏳ Yaratilgan sana: ${new Date(file.createdAt).toLocaleString()}`,
+        }
+      );
+    } catch (error) {
+      console.error("Xatolik fayl qidirishda:", error);
+      ctx.reply("Faylni olishda xatolik yuz berdi.");
+    }
+  });
 });
 
 bot.hears("📤 Fayl yuborish", (ctx) => {
@@ -127,6 +163,8 @@ const getFileLink = async (fileId) => {
   const file = await bot.telegram.getFile(fileId);
   return `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
 };
+
+app.use("/scan-file", ScanFileRouter);
 
 app.get("/files", async (req, res) => {
   try {
