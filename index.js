@@ -25,6 +25,7 @@ app.use(
     origin: "*",
   })
 );
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -54,6 +55,9 @@ const allowedFileTypes = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/msword",
 ];
+
+const WEBHOOK_DOMAIN = "http://45.134.39.117:8002";
+const WEBHOOK_PATH = `/bot${process.env.BOT_TOKEN}`;
 
 const usersReadyToSendFiles = new Set();
 
@@ -163,6 +167,12 @@ const getFileLink = async (fileId) => {
   const file = await bot.telegram.getFile(fileId);
   return `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
 };
+
+app.post(WEBHOOK_PATH, (req, res) => {
+  bot.handleUpdate(req.body);
+  res.sendStatus(200);
+});
+bot.telegram.setWebhook(`${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`);
 
 app.use("/scan-file", ScanFileRouter);
 
