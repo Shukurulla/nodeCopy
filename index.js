@@ -212,6 +212,12 @@ app.get("/download/:fileId", async (req, res) => {
   }
 });
 
-bot.launch();
+bot.launch({
+  webhook: {
+    domain: "http://45.134.39.117:8002",
+    port: 8002,
+  },
+});
+
 const PORT = process.env.PORT || 8002;
 server.listen(PORT, () => console.log(`Server ${PORT}-portda ishlayapti`));
