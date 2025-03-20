@@ -204,7 +204,9 @@ app.get("/download/:fileId", async (req, res) => {
 });
 
 // Long polling orqali botni ishga tushirish
-bot.launch();
+bot.launch({
+  polling: false,
+});
 
 const PORT = process.env.PORT || 8008;
 server.listen(PORT, () => console.log(`Server ${PORT}-portda ishlayapti`));
