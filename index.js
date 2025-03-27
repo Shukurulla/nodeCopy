@@ -17,7 +17,9 @@ mongoose
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
-  .then(() => console.log("Database connected"));
+  .then(() => {
+    console.log("Database connected");
+  });
 
 const app = express();
 app.use(
@@ -183,6 +185,18 @@ app.get("/files", async (req, res) => {
   }
 });
 
+app.delete("/files/all-delete", async (req, res) => {
+  try {
+    const findFiles = await File.find();
+    for (let i = 0; i < findFiles.length; i++) {
+      await File.findByIdAndDelete(findFiles[i]._id);
+    }
+    res.json({ message: "Clear" });
+  } catch (error) {
+    res.json({ message: error.message });
+  }
+});
+
 app.get("/download/:fileId", async (req, res) => {
   try {
     const file = await File.findOne({ fileId: req.params.fileId });
@@ -205,7 +219,7 @@ app.get("/download/:fileId", async (req, res) => {
 
 // Long polling orqali botni ishga tushirish
 bot.launch({
-  polling: false,
+  polling: true,
 });
 
 const PORT = process.env.PORT || 8008;

@@ -72,4 +72,13 @@ router.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
+router.get("/scan-files", async (req, res) => {
+  try {
+    const findFiles = await scanFileModel.find();
+    res.json({ data: findFiles });
+  } catch (error) {
+    res.json({ data: error.message });
+  }
+});
+
 export default router;
