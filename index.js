@@ -216,6 +216,9 @@ app.get("/download/:fileId", async (req, res) => {
     res.status(500).json({ error: "Faylni yuklashda xatolik yuz berdi." });
   }
 });
+app.get("/", (req, res) => {
+  res.send("Flash Print ishlayapti!");
+});
 
 // Long polling orqali botni ishga tushirish
 bot.launch({
