@@ -18,6 +18,16 @@ mongoose
     useUnifiedTopology: true,
   })
   .then(() => {
+    // (async () => {
+    //   try {
+    //     const files = await File.find();
+
+    //     for (let i = 0; i < files.length; i++) {
+    //       await File.findByIdAndDelete(files[i]._id);
+    //     }
+    //     console.log("clear old files");
+    //   } catch (error) {}
+    // })();
     console.log("Database connected");
   });
 
@@ -155,6 +165,7 @@ bot.on("document", async (ctx) => {
 
     const savedFile = new File(fileData);
     await savedFile.save();
+    const fileLink = await getFileLink(file.file_id);
 
     const caption = `✅ Fayl qabul qilindi!\n📄 Fayl nomi: ${
       fileData.fileName
@@ -163,7 +174,10 @@ bot.on("document", async (ctx) => {
     }\nUshbu kodni saqlab qo'ying.`;
     await ctx.reply(caption);
 
-    io.emit("newFile", fileData);
+    io.emit("newFile", {
+      ...fileData,
+      fileLink,
+    });
   } catch (error) {
     console.error("Xatolik:", error);
     ctx.reply("Faylni qabul qilishda xatolik yuz berdi.");
