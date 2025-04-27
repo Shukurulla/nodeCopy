@@ -6,9 +6,10 @@ import http from "http";
 import { Server } from "socket.io";
 import axios from "axios";
 import cors from "cors";
-
+import clickRouter from "./router/click.js";
 import ScanFileRouter from "./router/scanFile.routes.js";
 import scanFileModel from "./model/scanFile.model.js";
+import File from "./model/file.model.js";
 
 config();
 
@@ -44,21 +45,6 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const fileSchema = new mongoose.Schema({
-  fileId: String,
-  fileName: String,
-  fileType: String,
-  uniqueCode: String,
-  uploadedAt: { type: Date, default: Date.now },
-  user: {
-    username: String,
-    firstName: String,
-    lastName: String,
-    profilePic: String,
-  },
-});
-
-const File = mongoose.model("File", fileSchema);
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const allowedFileTypes = [
@@ -198,6 +184,7 @@ const getFileLink = async (fileId) => {
 };
 
 app.use("/scan-file", ScanFileRouter);
+app.use("/api/click", clickRouter);
 
 app.get("/files", async (req, res) => {
   try {
