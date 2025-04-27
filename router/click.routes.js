@@ -1,5 +1,5 @@
 import express from "express";
-import paidModel from "../models/paid.model.js"; // skanerlangan fayl modeli
+import paidModel from "../model/paid.model.js"; // skanerlangan fayl modeli
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
 
