@@ -71,10 +71,10 @@ router.post("/complete", async (req, res) => {
 
     // Eski faylni o'chiramiz
     if (uploadedFile) {
-      await uploadModel.findByIdAndDelete(merchant_trans_id);
+      await File.findByIdAndDelete(merchant_trans_id);
     }
     if (scannedFile) {
-      await scanModel.findByIdAndDelete(merchant_trans_id);
+      await scanFileModel.findByIdAndDelete(merchant_trans_id);
     }
 
     return res.status(200).json({
