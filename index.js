@@ -6,7 +6,7 @@ import http from "http";
 import { Server } from "socket.io";
 import axios from "axios";
 import cors from "cors";
-import clickRouter from "./router/click.js";
+import clickRouter from "./router/click.routes.js";
 import ScanFileRouter from "./router/scanFile.routes.js";
 import scanFileModel from "./model/scanFile.model.js";
 import File from "./model/file.model.js";
