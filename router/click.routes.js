@@ -8,8 +8,7 @@ const router = express.Router();
 // CLICK PREPARE URL
 router.post("/prepare", async (req, res) => {
   try {
-    const { merchant_trans_id, amount, action, sign_time, sign_string } =
-      req.body;
+    const { merchant_trans_id } = req.body;
     console.log("Prepare kelgan data:", req.body);
 
     const uploadedFile = await File.findById(merchant_trans_id);
@@ -22,28 +21,10 @@ router.post("/prepare", async (req, res) => {
       });
     }
 
-    // Faylni va miqdorni tekshirish
-    if (uploadedFile && uploadedFile.amount !== amount) {
-      return res.status(200).json({
-        error: -2,
-        error_note: "Miqdor xato",
-      });
-    }
-
-    // Agar to'lov allaqachon amalga oshirilgan bo'lsa, xatolik qaytarish
-    const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
-    if (existingPayment) {
-      return res.status(200).json({
-        error: -4,
-        error_note: "Transaction already paid",
-      });
-    }
-
-    // Transactionni tayyorlash
+    // Faylni tayyorlash
     await paidModel.create({
       _id: merchant_trans_id,
       status: "pending", // To'lovni tayyorlash
-      amount,
       date: new Date(),
     });
 
@@ -63,7 +44,7 @@ router.post("/prepare", async (req, res) => {
 // CLICK COMPLETE URL
 router.post("/complete", async (req, res) => {
   try {
-    const { merchant_trans_id, error, amount } = req.body;
+    const { merchant_trans_id, error } = req.body;
     console.log("Complete kelgan data:", req.body);
 
     if (error !== 0) {
@@ -84,15 +65,7 @@ router.post("/complete", async (req, res) => {
       });
     }
 
-    // Agar fayl miqdori noto'g'ri bo'lsa, xatolik yuborish
-    if (serviceData.amount && serviceData.amount !== amount) {
-      return res.status(200).json({
-        error: -2,
-        error_note: "Noto'g'ri miqdor",
-      });
-    }
-
-    // To'lovni tekshirish
+    // To'lovni tekshirish (allaqachon to'langan bo'lsa)
     const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
     if (existingPayment) {
       return res.status(200).json({
@@ -104,7 +77,6 @@ router.post("/complete", async (req, res) => {
     // To'lovni tasdiqlash
     await paidModel.findByIdAndUpdate(merchant_trans_id, {
       status: "paid",
-      amount,
       date: new Date(),
     });
 
