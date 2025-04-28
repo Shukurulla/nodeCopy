@@ -26,7 +26,7 @@ const clickCheckToken = (data, signString) => {
 };
 
 // Helper: Javob yuborish funksiyasi
-const sendClickResponse = (result) => {
+const sendClickResponse = (result, res) => {
   res
     .set({
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -60,10 +60,13 @@ router.post("/prepare", async (req, res) => {
     const isValid = clickCheckToken(signatureData, sign_string);
 
     if (!isValid) {
-      return sendClickResponse({
-        error: ClickError.SignFailed,
-        error_note: "Invalid sign",
-      });
+      return sendClickResponse(
+        {
+          error: ClickError.SignFailed,
+          error_note: "Invalid sign",
+        },
+        res
+      );
     }
 
     // File tekshirish
@@ -71,26 +74,35 @@ router.post("/prepare", async (req, res) => {
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
     if (!uploadedFile && !scannedFile) {
-      return sendClickResponse({
-        error: ClickError.UserNotFound,
-        error_note: "User not found",
-      });
+      return sendClickResponse(
+        {
+          error: ClickError.UserNotFound,
+          error_note: "User not found",
+        },
+        res
+      );
     }
     const time = new Date().getTime();
 
-    return sendClickResponse({
-      click_trans_id,
-      merchant_trans_id,
-      merchant_prepare_id: time,
-      error: ClickError.Success,
-      error_note: "Success",
-    });
+    return sendClickResponse(
+      {
+        click_trans_id,
+        merchant_trans_id,
+        merchant_prepare_id: time,
+        error: ClickError.Success,
+        error_note: "Success",
+      },
+      res
+    );
   } catch (error) {
     console.error("Prepare error:", error);
-    return sendClickResponse({
-      error: ClickError.TransactionCanceled,
-      error_note: "Technical error",
-    });
+    return sendClickResponse(
+      {
+        error: ClickError.TransactionCanceled,
+        error_note: "Technical error",
+      },
+      res
+    );
   }
 });
 
@@ -122,10 +134,13 @@ router.post("/complete", async (req, res) => {
     const isValid = clickCheckToken(signatureData, sign_string);
 
     if (!isValid) {
-      return sendClickResponse({
-        error: ClickError.SignFailed,
-        error_note: "Invalid sign",
-      });
+      return sendClickResponse(
+        {
+          error: ClickError.SignFailed,
+          error_note: "Invalid sign",
+        },
+        res
+      );
     }
 
     const uploadedFile = await File.findById(merchant_trans_id);
@@ -133,18 +148,24 @@ router.post("/complete", async (req, res) => {
     const serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
-      return sendClickResponse({
-        error: ClickError.UserNotFound,
-        error_note: "User not found",
-      });
+      return sendClickResponse(
+        {
+          error: ClickError.UserNotFound,
+          error_note: "User not found",
+        },
+        res
+      );
     }
 
     const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
     if (existingPayment) {
-      return {
-        error: ClickError.AlreadyPaid,
-        error_note: "Already paid for course",
-      };
+      return sendClickResponse(
+        {
+          error: ClickError.AlreadyPaid,
+          error_note: "Already paid",
+        },
+        res
+      );
     }
 
     await paidModel.create({
@@ -162,19 +183,25 @@ router.post("/complete", async (req, res) => {
     }
     const time = new Date().getTime();
 
-    return {
-      click_trans_id,
-      merchant_trans_id,
-      merchant_confirm_id: time,
-      error: ClickError.Success,
-      error_note: "Success",
-    };
+    return sendClickResponse(
+      {
+        click_trans_id,
+        merchant_trans_id,
+        merchant_confirm_id: time,
+        error: ClickError.Success,
+        error_note: "Success",
+      },
+      res
+    );
   } catch (error) {
     console.error("Complete error:", error);
-    return sendClickResponse({
-      error: ClickError.TransactionCanceled,
-      error_note: "Technical error",
-    });
+    return sendClickResponse(
+      {
+        error: ClickError.TransactionCanceled,
+        error_note: "Technical error",
+      },
+      res
+    );
   }
 });
 
