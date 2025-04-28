@@ -41,10 +41,9 @@ router.post("/prepare", async (req, res) => {
   }
 });
 
-// CLICK COMPLETE URL
 router.post("/complete", async (req, res) => {
   try {
-    const { merchant_trans_id, error } = req.body;
+    const { merchant_trans_id, error, amount } = req.body; // amountni olish
     console.log("Complete kelgan data:", req.body);
 
     if (error !== 0) {
@@ -74,10 +73,19 @@ router.post("/complete", async (req, res) => {
       });
     }
 
+    // Agar amount bo'lsa, uni saqlash
+    if (!amount) {
+      return res.status(200).json({
+        error: -2,
+        error_note: "Summa belgilangan emas",
+      });
+    }
+
     // To'lovni tasdiqlash
-    await paidModel.findByIdAndUpdate(merchant_trans_id, {
+    await paidModel.create({
       status: "paid",
-      serviceData,
+      serviceData: serviceData, // ServiceData ni to'ldir
+      amount: amount, // Amountni to'ldir
       date: new Date(),
     });
 
