@@ -19,16 +19,16 @@ mongoose
     useUnifiedTopology: true,
   })
   .then(() => {
-    (async () => {
-      try {
-        const files = await File.find();
+    // (async () => {
+    //   try {
+    //     const files = await File.find();
 
-        for (let i = 0; i < files.length; i++) {
-          await File.findByIdAndDelete(files[i]._id);
-        }
-        console.log("clear old files");
-      } catch (error) {}
-    })();
+    //     for (let i = 0; i < files.length; i++) {
+    //       await File.findByIdAndDelete(files[i]._id);
+    //     }
+    //     console.log("clear old files");
+    //   } catch (error) {}
+    // })();
     console.log("Database connected");
   });
 
