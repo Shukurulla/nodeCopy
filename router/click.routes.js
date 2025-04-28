@@ -51,6 +51,7 @@ router.post("/complete", async (req, res) => {
     const uploadedFile = await File.findById(merchant_trans_id);
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
     const serviceData = uploadedFile || scannedFile;
+    console.log(serviceData);
 
     if (!serviceData) {
       return res.status(200).json({
