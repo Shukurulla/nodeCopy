@@ -11,26 +11,25 @@ router.post("/prepare", async (req, res) => {
     const { merchant_trans_id } = req.body;
     console.log("Prepare kelgan data:", req.body);
 
-    // Bu yerda file mavjudligini tekshirasan
     const uploadedFile = await File.findById(merchant_trans_id);
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
     if (!uploadedFile && !scannedFile) {
-      return res.status(400).json({
-        error: "File topilmadi",
-        error_note: "Bunday file id mavjud emas",
+      return res.status(200).json({
+        error: -5, // Clickda noto'g'ri ID uchun -5 error kodi ishlatiladi
+        error_note: "User does not exist",
       });
     }
 
     return res.status(200).json({
       error: 0,
-      error_note: "OK",
+      error_note: "Success", // <<< Muhim!
     });
   } catch (error) {
     console.error("Prepare error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       error: -1,
-      error_note: "Server xatosi",
+      error_note: "Server error",
     });
   }
 });
@@ -44,24 +43,22 @@ router.post("/complete", async (req, res) => {
     if (error != 0) {
       return res.status(200).json({
         error: error,
-        error_note: "To'lov bekor qilindi",
+        error_note: "Error occurred",
       });
     }
 
-    // Faylni qidiramiz
     const uploadedFile = await File.findById(merchant_trans_id);
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
     let serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
-      return res.status(400).json({
-        error: -1,
-        error_note: "File topilmadi",
+      return res.status(200).json({
+        error: -5,
+        error_note: "User does not exist",
       });
     }
 
-    // PaidModel'ga saqlaymiz
     await paidModel.create({
       serviceData,
       status: "paid",
@@ -69,7 +66,6 @@ router.post("/complete", async (req, res) => {
       date: new Date(),
     });
 
-    // Eski faylni o'chiramiz
     if (uploadedFile) {
       await File.findByIdAndDelete(merchant_trans_id);
     }
@@ -79,13 +75,13 @@ router.post("/complete", async (req, res) => {
 
     return res.status(200).json({
       error: 0,
-      error_note: "To'lov muvaffaqiyatli yakunlandi",
+      error_note: "Success", // <<< Muhim!
     });
   } catch (error) {
     console.error("Complete error:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       error: -1,
-      error_note: "Server xatosi",
+      error_note: "Server error",
     });
   }
 });
