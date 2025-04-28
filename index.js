@@ -10,6 +10,7 @@ import clickRouter from "./router/click.routes.js";
 import ScanFileRouter from "./router/scanFile.routes.js";
 import scanFileModel from "./model/scanFile.model.js";
 import File from "./model/file.model.js";
+import PaidRouter from "./router/paid.routes.js";
 
 config();
 
@@ -185,6 +186,7 @@ const getFileLink = async (fileId) => {
 
 app.use("/scan-file", ScanFileRouter);
 app.use("/api/click", clickRouter);
+app.use("/api/paid", PaidRouter);
 
 app.get("/files", async (req, res) => {
   try {
