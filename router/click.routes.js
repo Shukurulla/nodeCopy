@@ -16,20 +16,20 @@ router.post("/prepare", async (req, res) => {
 
     if (!uploadedFile && !scannedFile) {
       return res.status(200).json({
-        error: -5, // Clickda noto'g'ri ID uchun -5 error kodi ishlatiladi
-        error_note: "User does not exist",
+        error: -5,
+        error_note: "Fayl topilmadi",
       });
     }
 
     return res.status(200).json({
       error: 0,
-      error_note: "Success", // <<< Muhim!
+      error_note: "OK",
     });
   } catch (error) {
     console.error("Prepare error:", error);
     return res.status(200).json({
       error: -1,
-      error_note: "Server error",
+      error_note: "Server xatosi",
     });
   }
 });
