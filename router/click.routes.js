@@ -14,6 +14,8 @@ router.post("/prepare", async (req, res) => {
     const uploadedFile = await File.findById(merchant_trans_id);
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
+    console.log(uploadedFile, scannedFile);
+
     if (!uploadedFile && !scannedFile) {
       return res.status(200).json({
         error: -5,
