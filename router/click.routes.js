@@ -77,6 +77,7 @@ router.post("/complete", async (req, res) => {
     // To'lovni tasdiqlash
     await paidModel.findByIdAndUpdate(merchant_trans_id, {
       status: "paid",
+      serviceData,
       date: new Date(),
     });
 
