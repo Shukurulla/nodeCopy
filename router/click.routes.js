@@ -21,13 +21,6 @@ router.post("/prepare", async (req, res) => {
       });
     }
 
-    // Faylni tayyorlash
-    await paidModel.create({
-      _id: merchant_trans_id,
-      status: "pending", // To'lovni tayyorlash
-      date: new Date(),
-    });
-
     return res.status(200).json({
       error: 0,
       error_note: "OK",
@@ -85,7 +78,7 @@ router.post("/complete", async (req, res) => {
     await paidModel.create({
       status: "paid",
       serviceData: serviceData, // ServiceData ni to'ldir
-      amount: amount, // Amountni to'ldir
+      amount: +amount, // Amountni to'ldir
       date: new Date(),
     });
 
