@@ -2,11 +2,6 @@ import express from "express";
 import paidModel from "../model/paid.model.js"; // To'langan fayllar
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
-import {
-  ClickError,
-  ClickAction,
-  TransactionState,
-} from "../enum/transaction.enum.js"; // Import enum
 
 const router = express.Router();
 
@@ -16,40 +11,41 @@ router.post("/prepare", async (req, res) => {
     const { merchant_trans_id } = req.body;
     console.log("Prepare kelgan data:", req.body);
 
+    // Faylni tekshirish
     const uploadedFile = await File.findById(merchant_trans_id);
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
-    // Fayl topilmasa xato
     if (!uploadedFile && !scannedFile) {
       return res.status(200).json({
-        error: ClickError.TransactionNotFound, // Using correct enum error
-        error_note: "Fayl topilmadi",
+        error: -5, // UserNotFound, product not found
+        error_note: "Fayl topilmadi", // File not found
       });
     }
 
+    // To'lovni oldindan qoshish (prepare faqat)
     return res.status(200).json({
-      error: ClickError.Success, // Using correct enum error
-      error_note: "OK",
+      error: 0, // Success
+      error_note: "OK", // Success message
     });
   } catch (error) {
     console.error("Prepare error:", error);
     return res.status(200).json({
-      error: ClickError.SignFailed, // Using correct enum error
-      error_note: "Server xatosi",
+      error: -1, // SignFailed (or a general error code)
+      error_note: "Server xatosi", // Server error message
     });
   }
 });
 
+// CLICK COMPLETE URL
 router.post("/complete", async (req, res) => {
   try {
     const { merchant_trans_id, error, amount } = req.body; // amountni olish
     console.log("Complete kelgan data:", req.body);
 
-    // Agar xato bo'lsa, darhol javob beramiz
     if (error !== 0) {
       return res.status(200).json({
-        error: error,
-        error_note: "Xatolik yuz berdi",
+        error: error, // Use the provided error code
+        error_note: "Xatolik yuz berdi", // Error note
       });
     }
 
@@ -58,28 +54,27 @@ router.post("/complete", async (req, res) => {
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
     const serviceData = uploadedFile || scannedFile;
 
-    // Agar fayl topilmasa, xato
     if (!serviceData) {
       return res.status(200).json({
-        error: ClickError.TransactionNotFound, // Using correct enum error
-        error_note: "Fayl topilmadi",
+        error: -5, // UserNotFound, file not found
+        error_note: "Fayl topilmadi", // File not found
       });
     }
 
-    // To'lovni tekshirish (allaqachon to'langan bo'lsa)
+    // To'lovni tekshirish (Allaqachon to'langan bo'lsa)
     const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
     if (existingPayment) {
       return res.status(200).json({
-        error: ClickError.AlreadyPaid, // Using correct enum error
-        error_note: "To'lov allaqachon amalga oshirilgan",
+        error: -4, // AlreadyPaid
+        error_note: "To'lov allaqachon amalga oshirilgan", // Payment already made
       });
     }
 
     // Agar amount bo'lsa, uni saqlash
     if (!amount) {
       return res.status(200).json({
-        error: ClickError.InvalidAmount, // Using correct enum error
-        error_note: "Summa belgilangan emas",
+        error: -2, // InvalidAmount
+        error_note: "Summa belgilangan emas", // Amount not specified
       });
     }
 
@@ -100,14 +95,14 @@ router.post("/complete", async (req, res) => {
     }
 
     return res.status(200).json({
-      error: ClickError.Success, // Using correct enum error
-      error_note: "To'lov tasdiqlandi",
+      error: 0, // Success
+      error_note: "To'lov tasdiqlandi", // Payment confirmed
     });
   } catch (error) {
     console.error("Complete error:", error);
     return res.status(200).json({
-      error: ClickError.SignFailed, // Using correct enum error
-      error_note: "Server xatosi",
+      error: -1, // General error
+      error_note: "Server xatosi", // Server error
     });
   }
 });
