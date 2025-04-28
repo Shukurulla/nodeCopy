@@ -3,8 +3,11 @@ import paidModel from "../model/paid.model.js"; // To'langan fayllar
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
 import md5 from "md5";
+import { ClickError } from "../enum/transaction.enum.js"; // Enumni import qilish
+import clickService from "../services/click.service.js"; // Service import qilish
 
 const router = express.Router();
+
 const clickCheckToken = (data, signString) => {
   const {
     click_trans_id,
@@ -50,18 +53,19 @@ router.post("/prepare", async (req, res, next) => {
     if (!checkSignature) {
       return res
         .status(400)
-        .json({ error: "Invalid signature", error_note: "Invalid sign" });
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("Invalid signature");
     }
 
     // Servicega murojaat qilish
     const result = await clickService.prepare(data);
-    res
+    return res
       .set({
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
       })
-      .send(result);
+      .send(result); // HTML tarzida yuborish
   } catch (error) {
     next(error);
   }
@@ -97,20 +101,72 @@ router.post("/complete", async (req, res, next) => {
     if (!checkSignature) {
       return res
         .status(400)
-        .json({ error: "Invalid signature", error_note: "Invalid sign" });
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("Invalid signature");
     }
 
-    // Servicega murojaat qilish
-    const result = await clickService.complete(data);
-    res
-      .set({
-        headers: {
+    // To'lovni tekshirish
+    const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
+    if (existingPayment) {
+      return res
+        .status(200)
+        .set({
           "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        },
+        })
+        .send("Payment already made");
+    }
+
+    // Faylni tekshirish
+    const uploadedFile = await File.findById(merchant_trans_id);
+    const scannedFile = await scanFileModel.findById(merchant_trans_id);
+    const serviceData = uploadedFile || scannedFile;
+
+    if (!serviceData) {
+      return res
+        .status(200)
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("File not found");
+    }
+
+    // To'lovni tasdiqlash
+    if (!amount) {
+      return res
+        .status(200)
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("Invalid amount");
+    }
+
+    // To'lovni saqlash
+    await paidModel.create({
+      status: "paid",
+      serviceData: serviceData,
+      amount: +amount,
+      date: new Date(),
+    });
+
+    // Faylni o'chirish
+    if (uploadedFile) {
+      await File.findByIdAndDelete(merchant_trans_id);
+    }
+    if (scannedFile) {
+      await scanFileModel.findByIdAndDelete(merchant_trans_id);
+    }
+
+    return res
+      .status(200)
+      .set({
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
       })
-      .send(result);
+      .send("Payment confirmed");
   } catch (error) {
     next(error);
   }
 });
+
 export default router;
