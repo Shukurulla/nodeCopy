@@ -3,6 +3,7 @@ import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
 import md5 from "md5";
+import { ClickError } from "../enum/transaction.enum.js";
 
 const router = express.Router();
 
@@ -25,12 +26,12 @@ const clickCheckToken = (data, signString) => {
 };
 
 // Helper: Javob yuborish funksiyasi
-const sendClickResponse = (res, error, error_note) => {
+const sendClickResponse = (result) => {
   res
     .set({
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     })
-    .send(`error=${error}&error_note=${encodeURIComponent(error_note)}`);
+    .send(result);
 };
 
 // Prepare
@@ -59,7 +60,10 @@ router.post("/prepare", async (req, res) => {
     const isValid = clickCheckToken(signatureData, sign_string);
 
     if (!isValid) {
-      return sendClickResponse(res, -1, "SIGN CHECK FAILED!");
+      return sendClickResponse({
+        error: ClickError.SignFailed,
+        error_note: "Invalid sign",
+      });
     }
 
     // File tekshirish
@@ -67,13 +71,26 @@ router.post("/prepare", async (req, res) => {
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
     if (!uploadedFile && !scannedFile) {
-      return sendClickResponse(res, -5, "User does not exist");
+      return sendClickResponse({
+        error: ClickError.UserNotFound,
+        error_note: "User not found",
+      });
     }
+    const time = new Date().getTime();
 
-    return sendClickResponse(res, 0, "Success");
+    return sendClickResponse({
+      click_trans_id,
+      merchant_trans_id,
+      merchant_prepare_id: time,
+      error: ClickError.Success,
+      error_note: "Success",
+    });
   } catch (error) {
     console.error("Prepare error:", error);
-    return sendClickResponse(res, -9, "Technical error");
+    return sendClickResponse({
+      error: ClickError.TransactionCanceled,
+      error_note: "Technical error",
+    });
   }
 });
 
@@ -105,11 +122,10 @@ router.post("/complete", async (req, res) => {
     const isValid = clickCheckToken(signatureData, sign_string);
 
     if (!isValid) {
-      return sendClickResponse(res, -1, "SIGN CHECK FAILED!");
-    }
-
-    if (error !== 0) {
-      return sendClickResponse(res, error, "Transaction cancelled");
+      return sendClickResponse({
+        error: ClickError.SignFailed,
+        error_note: "Invalid sign",
+      });
     }
 
     const uploadedFile = await File.findById(merchant_trans_id);
@@ -117,16 +133,18 @@ router.post("/complete", async (req, res) => {
     const serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
-      return sendClickResponse(res, -5, "User does not exist");
+      return sendClickResponse({
+        error: ClickError.UserNotFound,
+        error_note: "User not found",
+      });
     }
 
     const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
     if (existingPayment) {
-      return sendClickResponse(res, -4, "Already paid");
-    }
-
-    if (!amount) {
-      return sendClickResponse(res, -2, "Incorrect parameter amount");
+      return {
+        error: ClickError.AlreadyPaid,
+        error_note: "Already paid for course",
+      };
     }
 
     await paidModel.create({
@@ -142,11 +160,21 @@ router.post("/complete", async (req, res) => {
     if (scannedFile) {
       await scanFileModel.findByIdAndDelete(merchant_trans_id);
     }
+    const time = new Date().getTime();
 
-    return sendClickResponse(res, 0, "Success");
+    return {
+      click_trans_id,
+      merchant_trans_id,
+      merchant_confirm_id: time,
+      error: ClickError.Success,
+      error_note: "Success",
+    };
   } catch (error) {
     console.error("Complete error:", error);
-    return sendClickResponse(res, -9, "Technical error");
+    return sendClickResponse({
+      error: ClickError.TransactionCanceled,
+      error_note: "Technical error",
+    });
   }
 });
 
