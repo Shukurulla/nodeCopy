@@ -4,10 +4,10 @@ import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
 import md5 from "md5";
 import { ClickError } from "../enum/transaction.enum.js"; // Enumni import qilish
-import clickService from "../services/click.service.js"; // Service import qilish
 
 const router = express.Router();
 
+// Tokenni tekshirish
 const clickCheckToken = (data, signString) => {
   const {
     click_trans_id,
@@ -26,7 +26,7 @@ const clickCheckToken = (data, signString) => {
 };
 
 // Prepare Route
-router.post("/prepare", async (req, res, next) => {
+router.post("/prepare", async (req, res) => {
   try {
     const data = req.body;
     const {
@@ -59,63 +59,82 @@ router.post("/prepare", async (req, res, next) => {
         .send("Invalid signature");
     }
 
-    // Servicega murojaat qilish
-    const result = await clickService.prepare(data);
-    return res
-      .set({
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      })
-      .send(result); // HTML tarzida yuborish
-  } catch (error) {
-    next(error);
-  }
-});
+    // Faylni tekshirish
+    const uploadedFile = await File.findById(merchant_trans_id);
+    const scannedFile = await scanFileModel.findById(merchant_trans_id);
 
-// Complete Route
-router.post("/complete", async (req, res, next) => {
-  try {
-    const data = req.body;
-    const {
-      click_trans_id,
-      service_id,
-      merchant_trans_id,
-      merchant_prepare_id,
-      amount,
-      action,
-      sign_time,
-      sign_string,
-    } = data;
-
-    // Tokenni tekshirish
-    const signatureData = {
-      click_trans_id,
-      service_id,
-      orderId: merchant_trans_id,
-      merchant_prepare_id,
-      amount,
-      action,
-      sign_time,
-    };
-    const checkSignature = clickCheckToken(signatureData, sign_string);
-
-    if (!checkSignature) {
-      return res
-        .status(400)
-        .set({
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        })
-        .send("Invalid signature");
-    }
-
-    // To'lovni tekshirish
-    const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
-    if (existingPayment) {
+    // Fayl topilmasa xato
+    if (!uploadedFile && !scannedFile) {
       return res
         .status(200)
         .set({
           "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
         })
-        .send("Payment already made");
+        .send("File not found");
+    }
+
+    return res
+      .status(200)
+      .set({
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      })
+      .send("OK"); // Success message
+  } catch (error) {
+    console.error("Prepare error:", error);
+    return res
+      .status(500)
+      .set({
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      })
+      .send("Server error");
+  }
+});
+
+// Complete Route
+router.post("/complete", async (req, res) => {
+  try {
+    const data = req.body;
+    const {
+      click_trans_id,
+      service_id,
+      merchant_trans_id,
+      merchant_prepare_id,
+      amount,
+      action,
+      sign_time,
+      sign_string,
+      error,
+    } = data;
+
+    // Tokenni tekshirish
+    const signatureData = {
+      click_trans_id,
+      service_id,
+      orderId: merchant_trans_id,
+      merchant_prepare_id,
+      amount,
+      action,
+      sign_time,
+    };
+    const checkSignature = clickCheckToken(signatureData, sign_string);
+
+    if (!checkSignature) {
+      return res
+        .status(400)
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("Invalid signature");
+    }
+
+    // Agar xato bo'lsa, darhol javob beramiz
+    if (error !== 0) {
+      return res
+        .status(200)
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("Transaction failed");
     }
 
     // Faylni tekshirish
@@ -130,6 +149,17 @@ router.post("/complete", async (req, res, next) => {
           "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
         })
         .send("File not found");
+    }
+
+    // To'lovni tekshirish
+    const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
+    if (existingPayment) {
+      return res
+        .status(200)
+        .set({
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        })
+        .send("Payment already made");
     }
 
     // To'lovni tasdiqlash
@@ -165,7 +195,13 @@ router.post("/complete", async (req, res, next) => {
       })
       .send("Payment confirmed");
   } catch (error) {
-    next(error);
+    console.error("Complete error:", error);
+    return res
+      .status(500)
+      .set({
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      })
+      .send("Server error");
   }
 });
 
