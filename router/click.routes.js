@@ -36,7 +36,6 @@ router.post("/prepare", async (req, res) => {
   }
 });
 
-// CLICK COMPLETE URL
 router.post("/complete", async (req, res) => {
   try {
     const { merchant_trans_id, error, amount } = req.body;
@@ -51,8 +50,7 @@ router.post("/complete", async (req, res) => {
 
     const uploadedFile = await File.findById(merchant_trans_id);
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
-
-    let serviceData = uploadedFile || scannedFile;
+    const serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
       return res.status(200).json({
@@ -61,8 +59,25 @@ router.post("/complete", async (req, res) => {
       });
     }
 
+    // Agar file ichida amount bo'lsa va to'g'ri emas bo'lsa tekshiramiz
+    if (serviceData.amount && serviceData.amount !== amount) {
+      return res.status(200).json({
+        error: -2,
+        error_note: "Invalid amount",
+      });
+    }
+
+    // Transactionni qayta to'lamaslik uchun tekshir
+    const existingPayment = await paidModel.findOne({ _id: merchant_trans_id });
+    if (existingPayment) {
+      return res.status(200).json({
+        error: -4,
+        error_note: "Transaction already paid",
+      });
+    }
+
     await paidModel.create({
-      serviceData,
+      ...serviceData._doc, // <<< MUHIM TO'G'RILASH
       status: "paid",
       amount: amount,
       date: new Date(),
@@ -77,7 +92,7 @@ router.post("/complete", async (req, res) => {
 
     return res.status(200).json({
       error: 0,
-      error_note: "Success", // <<< Muhim!
+      error_note: "Success",
     });
   } catch (error) {
     console.error("Complete error:", error);
