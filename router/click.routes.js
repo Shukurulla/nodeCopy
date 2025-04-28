@@ -2,6 +2,7 @@ import express from "express";
 import paidModel from "../model/paid.model.js"; // To'langan fayllar
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
+import md5 from "md5";
 
 const router = express.Router();
 const clickCheckToken = (data, signString) => {
