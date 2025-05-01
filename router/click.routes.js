@@ -205,4 +205,20 @@ router.post("/complete", async (req, res) => {
   }
 });
 
+router.post("/get-click-link", async (req, res) => {
+  try {
+    const { orderId, amount } = req.body;
+    if (!orderId || !amount) {
+      return res.json({
+        status: "error",
+        message: "iltimos malumotlarni toliq kiriting",
+      });
+    }
+    const qrCode = `http://api.qrserver.com/v1/create-qr-code/?data=https://my.click.uz/services/pay?service_id=${process.env.CLICK_SERVICE_ID}&merchant_id=${process.env.CLICK_MERCHANT_ID}&amount=${amount}&transaction_param=${orderId}&size=x&bgcolor=`;
+    return res.json({ status: "success", data: qrCode });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 export default router;
