@@ -194,7 +194,7 @@ app.use("/api/paid", PaidRouter);
 
 app.get("/files", async (req, res) => {
   try {
-    const files = await File.find().sort({ createdAt: -1 });
+    const files = await File.find().sort({ uploadedAt: -1 });
     const filesWithLinks = await Promise.all(
       files.map(async (file) => {
         const fileLink = await getFileLink(file.fileId);
