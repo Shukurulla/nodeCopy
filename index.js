@@ -23,11 +23,15 @@ mongoose
     // (async () => {
     //   try {
     //     const files = await File.find();
+    //     const scanFiles = await scanFileModel.find();
 
     //     for (let i = 0; i < files.length; i++) {
     //       await File.findByIdAndDelete(files[i]._id);
     //     }
     //     console.log("clear old files");
+    //     for (let i = 0; i < scanFiles.length; i++) {
+    //       await scanFiles.findByIdAndDelete(scanFiles[i]._id);
+    //     }
     //   } catch (error) {}
     // })();
     console.log("Database connected");
@@ -190,7 +194,7 @@ app.use("/api/paid", PaidRouter);
 
 app.get("/files", async (req, res) => {
   try {
-    const files = await File.find();
+    const files = await File.find().sort({ createdAt: -1 });
     const filesWithLinks = await Promise.all(
       files.map(async (file) => {
         const fileLink = await getFileLink(file.fileId);
