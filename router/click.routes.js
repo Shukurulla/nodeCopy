@@ -2,6 +2,8 @@ import express from "express";
 import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
+import Statistika from "../model/statistika.model.js"; // Yangi qo'shildi
+import VendingApparat from "../model/vendingApparat.model.js"; // Yangi qo'shildi
 import md5 from "md5";
 import { ClickError } from "../enum/transaction.enum.js";
 
@@ -168,6 +170,7 @@ router.post("/complete", async (req, res) => {
       );
     }
 
+    // To'lovni bazaga qo'shish
     await paidModel.create({
       status: "paid",
       serviceData: serviceData,
@@ -175,12 +178,68 @@ router.post("/complete", async (req, res) => {
       date: new Date(),
     });
 
+    // Yangi: To'lov statistikasini yangilash
     if (uploadedFile) {
+      const apparatId = uploadedFile.apparatId;
+      const bugun = new Date();
+      bugun.setHours(0, 0, 0, 0);
+
+      // Statistikani qidirish yoki yaratish
+      let statistika = await Statistika.findOne({
+        apparatId,
+        sana: {
+          $gte: bugun,
+        },
+      });
+
+      if (!statistika) {
+        statistika = new Statistika({
+          apparatId,
+          sana: bugun,
+          foydalanishSoni: 1,
+          daromad: +amount,
+          ishlatilganQogoz: 1, // Default 1 ta - bu qiymatni o'zgartirish mumkin
+        });
+      } else {
+        statistika.foydalanishSoni += 1;
+        statistika.daromad += +amount;
+        statistika.ishlatilganQogoz += 1; // Default 1 ta
+      }
+
+      await statistika.save();
+
+      // Apparatning qog'oz sonini kamaytirish
+      const apparat = await VendingApparat.findOne({ apparatId });
+      if (apparat) {
+        apparat.joriyQogozSoni -= 1; // Default 1 ta
+        await apparat.save();
+
+        // Qog'oz kam qolganda xabar berish
+        if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
+          req.app.get("io").emit("qogozKam", {
+            apparatId,
+            joriyQogozSoni: apparat.joriyQogozSoni,
+            xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`,
+          });
+        }
+      }
+
+      // Socketga to'lov haqida xabar yuborish
+      req.app.get("io").emit("tolovMuvaffaqiyatli", {
+        fileId: merchant_trans_id,
+        apparatId,
+        amount: +amount,
+        qogozSoni: 1,
+      });
+
+      // Faylni o'chirish
       await File.findByIdAndDelete(merchant_trans_id);
     }
+
     if (scannedFile) {
       await scanFileModel.findByIdAndDelete(merchant_trans_id);
     }
+
     const time = new Date().getTime();
 
     return sendClickResponse(
