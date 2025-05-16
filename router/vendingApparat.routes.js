@@ -14,6 +14,7 @@ router.get("/", async (req, res) => {
     res.status(500).json({ muvaffaqiyat: false, xabar: error.message });
   }
 });
+
 router.get("/:id", async (req, res) => {
   try {
     const apparatlar = await VendingApparat.findById(req.params.id);
@@ -37,7 +38,7 @@ router.post("/", async (req, res) => {
 // Qogoz sonini yangilash
 router.put("/:id/qogoz", async (req, res) => {
   try {
-    const { soni } = req.body;
+    const { soni, add = false } = req.body;
     const apparat = await VendingApparat.findById(req.params.id);
 
     if (!apparat) {
@@ -46,14 +47,48 @@ router.put("/:id/qogoz", async (req, res) => {
         .json({ muvaffaqiyat: false, xabar: "Apparat topilmadi" });
     }
 
-    apparat.joriyQogozSoni = soni;
+    // Qiymatlari tekshirish
+    if (soni < 0) {
+      return res
+        .status(400)
+        .json({
+          muvaffaqiyat: false,
+          xabar: "Qog'oz soni 0 dan kam bo'lmasligi kerak",
+        });
+    }
+
+    // Agar add=true bo'lsa, qog'oz qo'shamiz, aks holda, qiymatni to'g'ridan-to'g'ri o'rnatamiz
+    if (add) {
+      // Maksimal sig'imdan oshib ketmasligini tekshirish
+      if (apparat.joriyQogozSoni + soni > apparat.qogozSigimi) {
+        return res.status(400).json({
+          muvaffaqiyat: false,
+          xabar: `Maksimal sig'im (${
+            apparat.qogozSigimi
+          }) dan oshib ketdi. Siz ${
+            apparat.qogozSigimi - apparat.joriyQogozSoni
+          } qog'ozdan ortiq qo'sha olmaysiz`,
+        });
+      }
+      apparat.joriyQogozSoni += soni;
+    } else {
+      // To'g'ridan-to'g'ri o'rnatish
+      if (soni > apparat.qogozSigimi) {
+        return res.status(400).json({
+          muvaffaqiyat: false,
+          xabar: `Maksimal sig'im (${apparat.qogozSigimi}) dan oshib ketdi. Siz ${apparat.qogozSigimi} qog'ozdan ortiq o'rnata olmaysiz`,
+        });
+      }
+      apparat.joriyQogozSoni = soni;
+    }
+
     apparat.oxirgiToladirishVaqti = new Date();
     await apparat.save();
 
     // Real-time xabar yuborish
     req.app.get("io").emit("qogozYangilandi", {
       apparatId: apparat.apparatId,
-      joriyQogozSoni: soni,
+      joriyQogozSoni: apparat.joriyQogozSoni,
     });
 
     res.json({ muvaffaqiyat: true, malumot: apparat });
@@ -92,6 +127,44 @@ router.get("/:id/statistika", async (req, res) => {
     }).sort({ sana: 1 });
 
     res.json({ muvaffaqiyat: true, malumot: statistika });
+  } catch (error) {
+    res.status(500).json({ muvaffaqiyat: false, xabar: error.message });
+  }
+});
+
+// Apparatni tahrirlash
+router.put("/:id", async (req, res) => {
+  try {
+    const apparat = await VendingApparat.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    if (!apparat) {
+      return res
+        .status(404)
+        .json({ muvaffaqiyat: false, xabar: "Apparat topilmadi" });
+    }
+
+    res.json({ muvaffaqiyat: true, malumot: apparat });
+  } catch (error) {
+    res.status(500).json({ muvaffaqiyat: false, xabar: error.message });
+  }
+});
+
+// Apparatni o'chirish
+router.delete("/:id", async (req, res) => {
+  try {
+    const apparat = await VendingApparat.findByIdAndDelete(req.params.id);
+
+    if (!apparat) {
+      return res
+        .status(404)
+        .json({ muvaffaqiyat: false, xabar: "Apparat topilmadi" });
+    }
+
+    res.json({ muvaffaqiyat: true, malumot: apparat });
   } catch (error) {
     res.status(500).json({ muvaffaqiyat: false, xabar: error.message });
   }

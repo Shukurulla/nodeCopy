@@ -231,13 +231,6 @@ router.post("/complete", async (req, res) => {
         amount: +amount,
         qogozSoni: 1,
       });
-
-      // Faylni o'chirish
-      await File.findByIdAndDelete(merchant_trans_id);
-    }
-
-    if (scannedFile) {
-      await scanFileModel.findByIdAndDelete(merchant_trans_id);
     }
 
     const time = new Date().getTime();

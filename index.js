@@ -14,7 +14,7 @@ import PaidRouter from "./router/paid.routes.js";
 import vendingApparatRouter from "./router/vendingApparat.routes.js"; // Yangi qo'shildi
 import statistikaRouter from "./router/statistika.routes.js"; // Yangi qo'shildi
 import VendingApparat from "./model/vendingApparat.model.js"; // Yangi qo'shildi
-
+import adminRouter from "./router/admin.routes.js";
 config();
 
 mongoose
@@ -40,7 +40,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 // Socket.io ni app o'zgaruvchisiga qo'shish
-app.set('io', io);
+app.set("io", io);
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -58,8 +58,10 @@ const usersWaitingForScanCode = new Set(); // Scan code uchun
 
 // Apparatlarni tanlash uchun tugmalarni yaratish
 const getApparatButtons = async () => {
-  const apparatlar = await VendingApparat.find({ holati: 'faol' });
-  return apparatlar.map(apparat => [apparat.nomi + " - " + apparat.apparatId]);
+  const apparatlar = await VendingApparat.find({ holati: "faol" });
+  return apparatlar.map((apparat) => [
+    apparat.nomi + " - " + apparat.apparatId,
+  ]);
 };
 
 bot.start((ctx) => {
@@ -71,28 +73,44 @@ bot.start((ctx) => {
       .oneTime()
   );
 });
-
-bot.hears("📋 Scan faylni olish", (ctx) => {
-  usersWaitingForScanCode.add(ctx.from.id);
-  ctx.reply("Iltimos, kodni kiriting.");
-});
-
-// Fayl yuborish uchun apparatni tanlash
 bot.hears("📤 Fayl yuborish", async (ctx) => {
   const apparatButtons = await getApparatButtons();
-  
+
   if (apparatButtons.length === 0) {
-    return ctx.reply("Kechirasiz, hozirda faol vending apparatlar mavjud emas.");
+    return ctx.reply(
+      "Kechirasiz, hozirda faol vending apparatlar mavjud emas."
+    );
   }
-  
+
   ctx.reply(
     "Iltimos, fayl yuborish uchun vending apparatni tanlang:",
-    Markup.keyboard(apparatButtons).resize().oneTime()
+    Markup.keyboard([
+      ...apparatButtons,
+      ["⬅️ Orqaga"], // Orqaga qaytish tugmasi
+    ])
+      .resize()
+      .oneTime()
   );
-  
+
   // Foydalanuvchini apparatlari tanlash kutayotganlar ro'yxatiga qo'shish
   usersWaitingForApparatSelection.add(ctx.from.id);
   usersReadyToSendFiles.delete(ctx.from.id);
+});
+
+bot.hears("⬅️ Orqaga", (ctx) => {
+  // Barcha holatlarni tozalash
+  usersWaitingForApparatSelection.delete(ctx.from.id);
+  usersReadyToSendFiles.delete(ctx.from.id);
+  usersWaitingForScanCode.delete(ctx.from.id);
+
+  // Bosh menyuni ko'rsatish
+  ctx.reply(
+    `Salom, ${ctx.from.first_name || "foydalanuvchi"}!
+📂 Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.`,
+    Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
+      .resize()
+      .oneTime()
+  );
 });
 
 bot.on("text", async (ctx) => {
@@ -113,7 +131,7 @@ bot.on("text", async (ctx) => {
 ⏳ Yaratilgan sana: ${new Date(file.createdAt).toLocaleString()}`,
         }
       );
-      
+
       // Foydalanuvchini kutish ro'yxatidan o'chirish
       usersWaitingForScanCode.delete(ctx.from.id);
     } catch (error) {
@@ -122,35 +140,37 @@ bot.on("text", async (ctx) => {
     }
     return;
   }
-  
+
   // Apparatni tanlash
   if (usersWaitingForApparatSelection.has(ctx.from.id)) {
     const messageText = ctx.message.text;
     // apparatId ni ajratib olish
     const apparatIdMatch = messageText.match(/- ([^\s]+)$/);
-    
+
     if (apparatIdMatch && apparatIdMatch[1]) {
       const apparatId = apparatIdMatch[1];
       // Apparat mavjudligini tekshirish
       const apparat = await VendingApparat.findOne({ apparatId });
-      
+
       if (apparat) {
         userSelectedApparats.set(ctx.from.id, apparatId);
         usersWaitingForApparatSelection.delete(ctx.from.id);
         usersReadyToSendFiles.add(ctx.from.id);
-        
+
         ctx.reply(
           `Siz "${apparat.nomi}" apparatini tanladingiz. Endi faylingizni yuboring. Faqat quyidagi fayl turlari qabul qilinadi: PDF, DOCX, EXCEL.`
         );
       } else {
-        ctx.reply("Kechirasiz, bunday apparat topilmadi. Iltimos, ro'yxatdan tanlang.");
+        ctx.reply(
+          "Kechirasiz, bunday apparat topilmadi. Iltimos, ro'yxatdan tanlang."
+        );
       }
     } else {
       ctx.reply("Noto'g'ri format. Iltimos, ro'yxatdan apparatni tanlang.");
     }
     return;
   }
-  
+
   // Boshqa tekst xabarlar uchun
   ctx.reply(
     "Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.",
@@ -169,9 +189,9 @@ bot.on("document", async (ctx) => {
     const file = ctx.message.document;
     const user = ctx.message.from;
     const apparatId = userSelectedApparats.get(ctx.from.id);
-    
+
     if (!apparatId) {
-      return ctx.reply('Iltimos, avval vending apparatni tanlang.');
+      return ctx.reply("Iltimos, avval vending apparatni tanlang.");
     }
 
     if (!allowedFileTypes.includes(file.mime_type)) {
@@ -233,20 +253,19 @@ bot.on("document", async (ctx) => {
       ...fileData,
       fileLink,
     });
-    
+
     // Barcha apparat turlariga fayl yuborilishini oldini olish
     io.emit("apparatNewFile", {
       apparatId,
       file: {
         ...fileData,
         fileLink,
-      }
+      },
     });
-    
-    // Foydalanuvchini qayta tayyorlash uchun 
+
+    // Foydalanuvchini qayta tayyorlash uchun
     usersReadyToSendFiles.delete(ctx.from.id);
     userSelectedApparats.delete(ctx.from.id);
-    
   } catch (error) {
     console.error("Xatolik:", error);
     ctx.reply("Faylni qabul qilishda xatolik yuz berdi.");
@@ -255,15 +274,16 @@ bot.on("document", async (ctx) => {
 
 io.on("connection", (socket) => {
   console.log("User connected", socket.id);
-  
+
   // Apparat identifikatorini saqlash
   socket.on("apparatUlanish", (apparatId) => {
     console.log(`Apparat ulandi: ${apparatId}`);
     socket.apparatId = apparatId;
     socket.join(apparatId); // xona yaratish
-    
+
     // Apparatga tegishli barcha fayllarnі yuborish
-    File.find({ apparatId }).sort({ uploadedAt: -1 })
+    File.find({ apparatId })
+      .sort({ uploadedAt: -1 })
       .then(async (files) => {
         const filesWithLinks = await Promise.all(
           files.map(async (file) => {
@@ -273,7 +293,7 @@ io.on("connection", (socket) => {
         );
         socket.emit("allFiles", filesWithLinks);
       })
-      .catch(error => {
+      .catch((error) => {
         console.error("Fayllarni yuklashda xatolik:", error);
       });
   });
@@ -281,51 +301,50 @@ io.on("connection", (socket) => {
   // Apparat tomonidan to'lov tasdiqlanganda
   socket.on("tolovTasdiqlandi", async (data) => {
     const { fileId, apparatId, amount, qogozSoni } = data;
-    
+
     try {
       // Statistikani yangilash
       const bugun = new Date();
       bugun.setHours(0, 0, 0, 0);
-      
+
       let statistika = await Statistika.findOne({
         apparatId,
         sana: {
-          $gte: bugun
-        }
+          $gte: bugun,
+        },
       });
-      
+
       if (!statistika) {
         statistika = new Statistika({
           apparatId,
           sana: bugun,
           foydalanishSoni: 1,
           daromad: amount || 0,
-          ishlatilganQogoz: qogozSoni || 0
+          ishlatilganQogoz: qogozSoni || 0,
         });
       } else {
         statistika.foydalanishSoni += 1;
-        statistika.daromad += (amount || 0);
-        statistika.ishlatilganQogoz += (qogozSoni || 0);
+        statistika.daromad += amount || 0;
+        statistika.ishlatilganQogoz += qogozSoni || 0;
       }
-      
+
       await statistika.save();
-      
+
       // Apparat qog'oz sonini yangilash
       const apparat = await VendingApparat.findOne({ apparatId });
       if (apparat) {
-        apparat.joriyQogozSoni -= (qogozSoni || 0);
+        apparat.joriyQogozSoni -= qogozSoni || 0;
         await apparat.save();
-        
+
         // Qog'oz kam qolganda xabar berish
         if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
           io.emit("qogozKam", {
             apparatId,
             joriyQogozSoni: apparat.joriyQogozSoni,
-            xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`
+            xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`,
           });
         }
       }
-      
     } catch (error) {
       console.error("Statistikani yangilashda xatolik:", error);
     }
@@ -351,6 +370,8 @@ const getFileLink = async (fileId) => {
   return `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${file.file_path}`;
 };
 
+app.use("/api/admin", adminRouter);
+
 app.use("/scan-file", ScanFileRouter);
 app.use("/api/click", clickRouter);
 app.use("/api/paid", PaidRouter);
@@ -361,11 +382,11 @@ app.use("/api/statistika", statistikaRouter); // Yangi qo'shildi
 app.get("/files", async (req, res) => {
   try {
     const { apparatId } = req.query;
-    
+
     if (!apparatId) {
       return res.status(400).json({ xato: "ApparatId ko'rsatilmagan" });
     }
-    
+
     const files = await File.find({ apparatId }).sort({ uploadedAt: -1 });
     const filesWithLinks = await Promise.all(
       files.map(async (file) => {
@@ -393,7 +414,10 @@ app.get("/admin/files", async (req, res) => {
     res.json({ muvaffaqiyat: true, malumot: filesWithLinks });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ muvaffaqiyat: false, xabar: "Fayllarni olishda xatolik yuz berdi." });
+    res.status(500).json({
+      muvaffaqiyat: false,
+      xabar: "Fayllarni olishda xatolik yuz berdi.",
+    });
   }
 });
 
@@ -451,8 +475,8 @@ bot.launch({
 });
 
 // Jarayonni to'xtatishda botni to'xtatish
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
 const PORT = process.env.PORT || 8008;
 server.listen(PORT, () => console.log(`Server ${PORT}-portda ishlayapti`));
