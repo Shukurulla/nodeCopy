@@ -266,7 +266,8 @@ router.post("/get-click-link", async (req, res) => {
         message: "iltimos malumotlarni toliq kiriting",
       });
     }
-    const qrCode = `https://my.click.uz/services/pay?service_id=71257&merchant_id=38721&amount=${amount}&transaction_param=${orderId}`;
+    const qrCode = `http://api.qrserver.com/v1/create-qr-code/?data=https://my.click.uz/services/pay?service_id=71257&merchant_id=38721&amount=${amount}&transaction_param=${orderId}&size=x&bgcolor=`;
+    //
     return res.json({ status: "success", data: qrCode });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
