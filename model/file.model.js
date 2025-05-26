@@ -19,6 +19,10 @@ const fileSchema = new mongoose.Schema({
     lastName: String,
     profilePic: String,
   },
+  fileUrl: {
+    type: String,
+    required: true,
+  },
 });
 
 const File = mongoose.model("File", fileSchema);

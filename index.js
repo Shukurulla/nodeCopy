@@ -179,7 +179,6 @@ bot.on("text", async (ctx) => {
       .oneTime()
   );
 });
-
 bot.on("document", async (ctx) => {
   if (!usersReadyToSendFiles.has(ctx.from.id)) {
     return ctx.reply('Avval "📤 Fayl yuborish" tugmasini bosing.');
@@ -201,6 +200,10 @@ bot.on("document", async (ctx) => {
     }
 
     const uniqueCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+    // FileURL ni olish
+    const fileUrl = await getFileLink(file.file_id);
+
     let userProfilePhoto = null;
 
     try {
@@ -228,7 +231,8 @@ bot.on("document", async (ctx) => {
       fileName: file.file_name || `file_${Date.now()}`,
       fileType: file.mime_type,
       uniqueCode,
-      apparatId, // Yangi maydon qo'shildi
+      apparatId,
+      fileUrl, // FileURL qo'shildi
       user: {
         username: user.username || "Noma'lum",
         firstName: user.first_name || "Noma'lum",
@@ -239,7 +243,6 @@ bot.on("document", async (ctx) => {
 
     const savedFile = new File(fileData);
     await savedFile.save();
-    const fileLink = await getFileLink(file.file_id);
 
     const caption = `✅ Fayl qabul qilindi!\n📄 Fayl nomi: ${
       fileData.fileName
@@ -251,7 +254,7 @@ bot.on("document", async (ctx) => {
     // Faqat tanlangan apparatga fayl yuborish
     io.to(apparatId).emit("newFile", {
       ...fileData,
-      fileLink,
+      fileLink: fileUrl, // Consistency uchun
     });
 
     // Barcha apparat turlariga fayl yuborilishini oldini olish
@@ -259,7 +262,7 @@ bot.on("document", async (ctx) => {
       apparatId,
       file: {
         ...fileData,
-        fileLink,
+        fileLink: fileUrl, // Consistency uchun
       },
     });
 
@@ -279,18 +282,18 @@ io.on("connection", (socket) => {
   socket.on("apparatUlanish", (apparatId) => {
     console.log(`Apparat ulandi: ${apparatId}`);
     socket.apparatId = apparatId;
-    socket.join(apparatId); // xona yaratish
+    socket.join(apparatId);
 
-    // Apparatga tegishli barcha fayllarnі yuborish
+    // Apparatga tegishli barcha fayllarni yuborish
     File.find({ apparatId })
       .sort({ uploadedAt: -1 })
       .then(async (files) => {
-        const filesWithLinks = await Promise.all(
-          files.map(async (file) => {
-            const fileLink = await getFileLink(file.fileId);
-            return { ...file.toObject(), fileLink };
-          })
-        );
+        const filesWithLinks = files.map((file) => {
+          return {
+            ...file.toObject(),
+            fileLink: file.fileUrl, // Endi bazadan fileUrl ni olish
+          };
+        });
         socket.emit("allFiles", filesWithLinks);
       })
       .catch((error) => {
@@ -388,12 +391,12 @@ app.get("/files", async (req, res) => {
     }
 
     const files = await File.find({ apparatId }).sort({ uploadedAt: -1 });
-    const filesWithLinks = await Promise.all(
-      files.map(async (file) => {
-        const fileLink = await getFileLink(file.fileId);
-        return { ...file.toObject(), fileLink };
-      })
-    );
+    const filesWithLinks = files.map((file) => {
+      return {
+        ...file.toObject(),
+        fileLink: file.fileUrl, // Endi bazadan fileUrl ni olish
+      };
+    });
     res.json(filesWithLinks);
   } catch (error) {
     console.error(error);
@@ -405,12 +408,12 @@ app.get("/files", async (req, res) => {
 app.get("/admin/files", async (req, res) => {
   try {
     const files = await File.find().sort({ uploadedAt: -1 });
-    const filesWithLinks = await Promise.all(
-      files.map(async (file) => {
-        const fileLink = await getFileLink(file.fileId);
-        return { ...file.toObject(), fileLink };
-      })
-    );
+    const filesWithLinks = files.map((file) => {
+      return {
+        ...file.toObject(),
+        fileLink: file.fileUrl, // Endi bazadan fileUrl ni olish
+      };
+    });
     res.json({ muvaffaqiyat: true, malumot: filesWithLinks });
   } catch (error) {
     console.error(error);
@@ -420,7 +423,6 @@ app.get("/admin/files", async (req, res) => {
     });
   }
 });
-
 // Barcha fayllarni o'chirish
 app.delete("/files/all-delete", async (req, res) => {
   try {
@@ -450,7 +452,8 @@ app.get("/download/:fileId", async (req, res) => {
     const file = await File.findOne({ fileId: req.params.fileId });
     if (!file) return res.status(404).json({ error: "Fayl topilmadi" });
 
-    const fileLink = await getFileLink(file.fileId);
+    // Endi fileUrl bazadan olinadi
+    const fileLink = file.fileUrl;
     const response = await axios.get(fileLink, { responseType: "stream" });
 
     res.setHeader(
