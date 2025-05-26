@@ -257,6 +257,21 @@ router.post("/complete", async (req, res) => {
   }
 });
 
+router.post("/check-payment-status", async (req, res) => {
+  try {
+    const { order_id } = req.body;
+    const findFileWithPath = await paidModel.findOne({
+      "serviceData.fileUrl": order_id,
+    });
+    if (!findFileWithPath) {
+      return res.json({ status: "error", message: "bunday file topilmadi" });
+    }
+    res.status(200).json({ status: "success", message: "Tolandi" });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 router.post("/get-click-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
