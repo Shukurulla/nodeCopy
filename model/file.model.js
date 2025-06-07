@@ -23,6 +23,11 @@ const fileSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: 60 * 60 * 48, // 48 soat (sekundda)
+  },
 });
 
 const File = mongoose.model("File", fileSchema);
