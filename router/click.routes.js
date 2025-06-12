@@ -272,6 +272,36 @@ router.post("/check-payment-status", async (req, res) => {
   }
 });
 
+router.post("/get-scan-link", async (req, res) => {
+  try {
+
+    // scan file example response {
+    //   "_id": "67da944f83db8ff4e84cbc32",
+    //   "code": "41363",
+    //   "file": "public/scan-file/1742378063645-782760293.docx",
+    //   "createdAt": "2025-03-19T09:54:23.949Z",
+    //   "updatedAt": "2025-03-19T09:54:23.949Z",
+    //   "__v": 0
+    //   },
+    const { code, amount } = req.body; 
+    if (!code || !amount) {
+      return res.json({
+        status: "error",
+        message: "iltimos malumotlarni toliq kiriting",
+      });
+    }
+
+    const findFileWithPath = await File.findOne({ code: code });
+    if (!findFileWithPath) {
+      return res.json({ status: "error", message: "bunday file topilmadi" });
+    }
+    const qrCode = `https://my.click.uz/services/pay?service_id=71257&merchant_id=38721&amount=${amount}&transaction_param=${findFileWithPath._id}`;
+    //
+    return res.json({ status: "success", data: qrCode });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 router.post("/get-click-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
