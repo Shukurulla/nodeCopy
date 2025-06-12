@@ -10,6 +10,10 @@ const scanFileSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    status: {
+      type: String,
+      enum: ["paid", "pending"],
+    },
   },
   {
     timestamps: true,

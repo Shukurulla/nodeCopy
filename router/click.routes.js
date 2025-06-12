@@ -274,7 +274,6 @@ router.post("/check-payment-status", async (req, res) => {
 
 router.post("/get-scan-link", async (req, res) => {
   try {
-
     // scan file example response {
     //   "_id": "67da944f83db8ff4e84cbc32",
     //   "code": "41363",
@@ -283,7 +282,7 @@ router.post("/get-scan-link", async (req, res) => {
     //   "updatedAt": "2025-03-19T09:54:23.949Z",
     //   "__v": 0
     //   },
-    const { code, amount } = req.body; 
+    const { code, amount } = req.body;
     if (!code || !amount) {
       return res.json({
         status: "error",
@@ -291,7 +290,7 @@ router.post("/get-scan-link", async (req, res) => {
       });
     }
 
-    const findFileWithPath = await File.findOne({ code: code });
+    const findFileWithPath = await scanFileModel.findOne({ code: code });
     if (!findFileWithPath) {
       return res.json({ status: "error", message: "bunday file topilmadi" });
     }
