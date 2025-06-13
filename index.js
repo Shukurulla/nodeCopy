@@ -15,6 +15,7 @@ import vendingApparatRouter from "./router/vendingApparat.routes.js"; // Yangi q
 import statistikaRouter from "./router/statistika.routes.js"; // Yangi qo'shildi
 import VendingApparat from "./model/vendingApparat.model.js"; // Yangi qo'shildi
 import adminRouter from "./router/admin.routes.js";
+import paidModel from "./model/paid.model.js";
 config();
 
 mongoose
@@ -179,6 +180,134 @@ bot.on("text", async (ctx) => {
       .oneTime()
   );
 });
+
+// "📋 Scan faylni olish" tugmasi uchun handler qo'shing
+bot.hears("📋 Scan faylni olish", (ctx) => {
+  ctx.reply(
+    "Iltimos, fayl kodini kiriting:",
+    Markup.keyboard([["⬅️ Orqaga"]])
+      .resize()
+      .oneTime()
+  );
+
+  // Foydalanuvchini scan kod kutish ro'yxatiga qo'shish
+  usersWaitingForScanCode.add(ctx.from.id);
+  
+  // Boshqa holatlarni tozalash
+  usersWaitingForApparatSelection.delete(ctx.from.id);
+  usersReadyToSendFiles.delete(ctx.from.id);
+});
+
+// Mavjud bot.on("text") handlerini yangilang
+bot.on("text", async (ctx) => {
+  // Scan fayl kodi kiritilganmi tekshirish
+  if (usersWaitingForScanCode.has(ctx.from.id)) {
+    const code = ctx.message.text.trim();
+    
+    // Agar "⬅️ Orqaga" tugmasi bosilgan bo'lsa
+    if (code === "⬅️ Orqaga") {
+      usersWaitingForScanCode.delete(ctx.from.id);
+      return ctx.reply(
+        `Salom, ${ctx.from.first_name || "foydalanuvchi"}!
+📂 Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.`,
+        Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
+          .resize()
+          .oneTime()
+      );
+    }
+    
+    try {
+      const file = await scanFileModel.findOne({ code });
+      if (!file) {
+        return ctx.reply(
+          "Kechirasiz, ushbu kodga mos fayl topilmadi. Kodni qayta tekshiring yoki boshqa kod kiriting.",
+          Markup.keyboard([["⬅️ Orqaga"]])
+            .resize()
+            .oneTime()
+        );
+      }
+      const isPaid = await paidModel.findOne({'serviceData._id': file._id, status: "paid"})
+      if(!isPaid){
+        return ctx.reply(
+          "Ushbu xizmat uchun haq to'lanmagan",
+          Markup.keyboard([["⬅️ Orqaga"]])
+            .resize()
+            .oneTime()
+        );
+      }
+      // Faylni yuborish
+      await ctx.replyWithDocument(
+        { source: file.file },
+        {
+          caption: `📁 Fayl topildi!
+🔑 Kod: ${file.code}
+⏳ Yaratilgan sana: ${new Date(file.createdAt).toLocaleString()}`,
+        }
+      );
+
+      // Muvaffaqiyatli yuborilgandan keyin asosiy menyuga qaytarish
+      usersWaitingForScanCode.delete(ctx.from.id);
+      
+      ctx.reply(
+        "Fayl muvaffaqiyatli yuborildi! Yana biror narsa kerakmi?",
+        Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
+          .resize()
+          .oneTime()
+      );
+      
+    } catch (error) {
+      console.error("Xatolik fayl qidirishda:", error);
+      ctx.reply(
+        "Faylni olishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.",
+        Markup.keyboard([["⬅️ Orqaga"]])
+          .resize()
+          .oneTime()
+      );
+    }
+    return;
+  }
+
+  // Apparatni tanlash
+  if (usersWaitingForApparatSelection.has(ctx.from.id)) {
+    const messageText = ctx.message.text;
+    // apparatId ni ajratib olish
+    const apparatIdMatch = messageText.match(/- ([^\s]+)$/);
+
+    if (apparatIdMatch && apparatIdMatch[1]) {
+      const apparatId = apparatIdMatch[1];
+      // Apparat mavjudligini tekshirish
+      const apparat = await VendingApparat.findOne({ apparatId });
+
+      if (apparat) {
+        userSelectedApparats.set(ctx.from.id, apparatId);
+        usersWaitingForApparatSelection.delete(ctx.from.id);
+        usersReadyToSendFiles.add(ctx.from.id);
+
+        ctx.reply(
+          `Siz "${apparat.nomi}" apparatini tanladingiz. Endi faylingizni yuboring. Faqat quyidagi fayl turlari qabul qilinadi: PDF, DOCX, EXCEL.`
+        );
+      } else {
+        ctx.reply(
+          "Kechirasiz, bunday apparat topilmadi. Iltimos, ro'yxatdan tanlang."
+        );
+      }
+    } else {
+      ctx.reply("Noto'g'ri format. Iltimos, ro'yxatdan apparatni tanlang.");
+    }
+    return;
+  }
+
+  // Boshqa tekst xabarlar uchun
+  ctx.reply(
+    "Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.",
+    Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
+      .resize()
+      .oneTime()
+  );
+});
+
+
+
 bot.on("document", async (ctx) => {
   if (!usersReadyToSendFiles.has(ctx.from.id)) {
     return ctx.reply('Avval "📤 Fayl yuborish" tugmasini bosing.');
