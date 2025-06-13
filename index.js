@@ -11,9 +11,9 @@ import ScanFileRouter from "./router/scanFile.routes.js";
 import scanFileModel from "./model/scanFile.model.js";
 import File from "./model/file.model.js";
 import PaidRouter from "./router/paid.routes.js";
-import vendingApparatRouter from "./router/vendingApparat.routes.js"; // Yangi qo'shildi
-import statistikaRouter from "./router/statistika.routes.js"; // Yangi qo'shildi
-import VendingApparat from "./model/vendingApparat.model.js"; // Yangi qo'shildi
+import vendingApparatRouter from "./router/vendingApparat.routes.js";
+import statistikaRouter from "./router/statistika.routes.js";
+import VendingApparat from "./model/vendingApparat.model.js";
 import adminRouter from "./router/admin.routes.js";
 import paidModel from "./model/paid.model.js";
 config();
@@ -40,7 +40,6 @@ app.use(express.urlencoded({ limit: "100mb", extended: true }));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Socket.io ni app o'zgaruvchisiga qo'shish
 app.set("io", io);
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -53,11 +52,10 @@ const allowedFileTypes = [
 ];
 
 const usersReadyToSendFiles = new Set();
-const usersWaitingForApparatSelection = new Set(); // Yangi qo'shildi
-const userSelectedApparats = new Map(); // Yangi qo'shildi: foydalanuvchi -> apparatId
-const usersWaitingForScanCode = new Set(); // Scan code uchun
+const usersWaitingForApparatSelection = new Set();
+const userSelectedApparats = new Map();
+const usersWaitingForScanCode = new Set();
 
-// Apparatlarni tanlash uchun tugmalarni yaratish
 const getApparatButtons = async () => {
   const apparatlar = await VendingApparat.find({ holati: "faol" });
   return apparatlar.map((apparat) => [
@@ -74,6 +72,7 @@ bot.start((ctx) => {
       .oneTime()
   );
 });
+
 bot.hears("📤 Fayl yuborish", async (ctx) => {
   const apparatButtons = await getApparatButtons();
 
@@ -85,26 +84,34 @@ bot.hears("📤 Fayl yuborish", async (ctx) => {
 
   ctx.reply(
     "Iltimos, fayl yuborish uchun vending apparatni tanlang:",
-    Markup.keyboard([
-      ...apparatButtons,
-      ["⬅️ Orqaga"], // Orqaga qaytish tugmasi
-    ])
+    Markup.keyboard([...apparatButtons, ["⬅️ Orqaga"]])
       .resize()
       .oneTime()
   );
 
-  // Foydalanuvchini apparatlari tanlash kutayotganlar ro'yxatiga qo'shish
   usersWaitingForApparatSelection.add(ctx.from.id);
+  usersReadyToSendFiles.delete(ctx.from.id);
+  usersWaitingForScanCode.delete(ctx.from.id);
+});
+
+bot.hears("📋 Scan faylni olish", (ctx) => {
+  ctx.reply(
+    "Iltimos, fayl kodini kiriting:",
+    Markup.keyboard([["⬅️ Orqaga"]])
+      .resize()
+      .oneTime()
+  );
+
+  usersWaitingForScanCode.add(ctx.from.id);
+  usersWaitingForApparatSelection.delete(ctx.from.id);
   usersReadyToSendFiles.delete(ctx.from.id);
 });
 
 bot.hears("⬅️ Orqaga", (ctx) => {
-  // Barcha holatlarni tozalash
   usersWaitingForApparatSelection.delete(ctx.from.id);
   usersReadyToSendFiles.delete(ctx.from.id);
   usersWaitingForScanCode.delete(ctx.from.id);
 
-  // Bosh menyuni ko'rsatish
   ctx.reply(
     `Salom, ${ctx.from.first_name || "foydalanuvchi"}!
 📂 Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.`,
@@ -115,107 +122,9 @@ bot.hears("⬅️ Orqaga", (ctx) => {
 });
 
 bot.on("text", async (ctx) => {
-  // Scan fayl kodi kiritilganmi tekshirish
   if (usersWaitingForScanCode.has(ctx.from.id)) {
     const code = ctx.message.text.trim();
-    try {
-      const file = await scanFileModel.findOne({ code });
-      if (!file) {
-        return ctx.reply("Kechirasiz, ushbu kodga mos fayl topilmadi.");
-      }
 
-      await ctx.replyWithDocument(
-        { source: file.file },
-        {
-          caption: `📁 Fayl topildi!
-🔑 Kod: ${file.code}
-⏳ Yaratilgan sana: ${new Date(file.createdAt).toLocaleString()}`,
-        }
-      );
-
-      // Foydalanuvchini kutish ro'yxatidan o'chirish
-      usersWaitingForScanCode.delete(ctx.from.id);
-    } catch (error) {
-      console.error("Xatolik fayl qidirishda:", error);
-      ctx.reply("Faylni olishda xatolik yuz berdi.");
-    }
-    return;
-  }
-
-  // Apparatni tanlash
-  if (usersWaitingForApparatSelection.has(ctx.from.id)) {
-    const messageText = ctx.message.text;
-    // apparatId ni ajratib olish
-    const apparatIdMatch = messageText.match(/- ([^\s]+)$/);
-
-    if (apparatIdMatch && apparatIdMatch[1]) {
-      const apparatId = apparatIdMatch[1];
-      // Apparat mavjudligini tekshirish
-      const apparat = await VendingApparat.findOne({ apparatId });
-
-      if (apparat) {
-        userSelectedApparats.set(ctx.from.id, apparatId);
-        usersWaitingForApparatSelection.delete(ctx.from.id);
-        usersReadyToSendFiles.add(ctx.from.id);
-
-        ctx.reply(
-          `Siz "${apparat.nomi}" apparatini tanladingiz. Endi faylingizni yuboring. Faqat quyidagi fayl turlari qabul qilinadi: PDF, DOCX, EXCEL.`
-        );
-      } else {
-        ctx.reply(
-          "Kechirasiz, bunday apparat topilmadi. Iltimos, ro'yxatdan tanlang."
-        );
-      }
-    } else {
-      ctx.reply("Noto'g'ri format. Iltimos, ro'yxatdan apparatni tanlang.");
-    }
-    return;
-  }
-
-  // Boshqa tekst xabarlar uchun
-  ctx.reply(
-    "Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.",
-    Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
-      .resize()
-      .oneTime()
-  );
-});
-
-// "📋 Scan faylni olish" tugmasi uchun handler qo'shing
-bot.hears("📋 Scan faylni olish", (ctx) => {
-  ctx.reply(
-    "Iltimos, fayl kodini kiriting:",
-    Markup.keyboard([["⬅️ Orqaga"]])
-      .resize()
-      .oneTime()
-  );
-
-  // Foydalanuvchini scan kod kutish ro'yxatiga qo'shish
-  usersWaitingForScanCode.add(ctx.from.id);
-  
-  // Boshqa holatlarni tozalash
-  usersWaitingForApparatSelection.delete(ctx.from.id);
-  usersReadyToSendFiles.delete(ctx.from.id);
-});
-
-// Mavjud bot.on("text") handlerini yangilang
-bot.on("text", async (ctx) => {
-  // Scan fayl kodi kiritilganmi tekshirish
-  if (usersWaitingForScanCode.has(ctx.from.id)) {
-    const code = ctx.message.text.trim();
-    
-    // Agar "⬅️ Orqaga" tugmasi bosilgan bo'lsa
-    if (code === "⬅️ Orqaga") {
-      usersWaitingForScanCode.delete(ctx.from.id);
-      return ctx.reply(
-        `Salom, ${ctx.from.first_name || "foydalanuvchi"}!
-📂 Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.`,
-        Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
-          .resize()
-          .oneTime()
-      );
-    }
-    
     try {
       const file = await scanFileModel.findOne({ code });
       if (!file) {
@@ -226,8 +135,12 @@ bot.on("text", async (ctx) => {
             .oneTime()
         );
       }
-      const isPaid = await paidModel.findOne({'serviceData._id': file._id, status: "paid"})
-      if(!isPaid){
+
+      const isPaid = await paidModel.findOne({
+        "serviceData._id": file._id,
+        status: "paid",
+      });
+      if (!isPaid) {
         return ctx.reply(
           "Ushbu xizmat uchun haq to'lanmagan",
           Markup.keyboard([["⬅️ Orqaga"]])
@@ -235,7 +148,7 @@ bot.on("text", async (ctx) => {
             .oneTime()
         );
       }
-      // Faylni yuborish
+
       await ctx.replyWithDocument(
         { source: file.file },
         {
@@ -245,16 +158,14 @@ bot.on("text", async (ctx) => {
         }
       );
 
-      // Muvaffaqiyatli yuborilgandan keyin asosiy menyuga qaytarish
       usersWaitingForScanCode.delete(ctx.from.id);
-      
+
       ctx.reply(
         "Fayl muvaffaqiyatli yuborildi! Yana biror narsa kerakmi?",
         Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
           .resize()
           .oneTime()
       );
-      
     } catch (error) {
       console.error("Xatolik fayl qidirishda:", error);
       ctx.reply(
@@ -267,15 +178,12 @@ bot.on("text", async (ctx) => {
     return;
   }
 
-  // Apparatni tanlash
   if (usersWaitingForApparatSelection.has(ctx.from.id)) {
     const messageText = ctx.message.text;
-    // apparatId ni ajratib olish
     const apparatIdMatch = messageText.match(/- ([^\s]+)$/);
 
     if (apparatIdMatch && apparatIdMatch[1]) {
       const apparatId = apparatIdMatch[1];
-      // Apparat mavjudligini tekshirish
       const apparat = await VendingApparat.findOne({ apparatId });
 
       if (apparat) {
@@ -297,7 +205,6 @@ bot.on("text", async (ctx) => {
     return;
   }
 
-  // Boshqa tekst xabarlar uchun
   ctx.reply(
     "Fayl yuborish yoki skan faylni olish uchun tugmalardan birini tanlang.",
     Markup.keyboard([["📤 Fayl yuborish"], ["📋 Scan faylni olish"]])
@@ -305,8 +212,6 @@ bot.on("text", async (ctx) => {
       .oneTime()
   );
 });
-
-
 
 bot.on("document", async (ctx) => {
   if (!usersReadyToSendFiles.has(ctx.from.id)) {
@@ -329,21 +234,17 @@ bot.on("document", async (ctx) => {
     }
 
     const uniqueCode = Math.floor(1000 + Math.random() * 9000).toString();
-
-    // FileURL ni olish
     const fileUrl = await getFileLink(file.file_id);
 
     let userProfilePhoto = null;
 
     try {
-      // Profil rasmini olish
       const photos = await ctx.telegram.getUserProfilePhotos(user.id, 0, 1);
       if (photos.total_count > 0) {
         const photoFile = photos.photos[0][0];
         const fileInfo = await ctx.telegram.getFile(photoFile.file_id);
         userProfilePhoto = `https://api.telegram.org/file/bot${process.env.BOT_TOKEN}/${fileInfo.file_path}`;
 
-        // Havolani tekshirish
         try {
           await axios.head(userProfilePhoto);
         } catch (error) {
@@ -361,7 +262,7 @@ bot.on("document", async (ctx) => {
       fileType: file.mime_type,
       uniqueCode,
       apparatId,
-      fileUrl, // FileURL qo'shildi
+      fileUrl,
       user: {
         username: user.username || "Noma'lum",
         firstName: user.first_name || "Noma'lum",
@@ -380,22 +281,19 @@ bot.on("document", async (ctx) => {
     }\n🏢 Vending apparat: ${apparatId}\nUshbu kodni saqlab qo'ying.`;
     await ctx.reply(caption);
 
-    // Faqat tanlangan apparatga fayl yuborish
     io.to(apparatId).emit("newFile", {
       ...fileData,
-      fileLink: fileUrl, // Consistency uchun
+      fileLink: fileUrl,
     });
 
-    // Barcha apparat turlariga fayl yuborilishini oldini olish
     io.emit("apparatNewFile", {
       apparatId,
       file: {
         ...fileData,
-        fileLink: fileUrl, // Consistency uchun
+        fileLink: fileUrl,
       },
     });
 
-    // Foydalanuvchini qayta tayyorlash uchun
     usersReadyToSendFiles.delete(ctx.from.id);
     userSelectedApparats.delete(ctx.from.id);
   } catch (error) {
@@ -407,20 +305,18 @@ bot.on("document", async (ctx) => {
 io.on("connection", (socket) => {
   console.log("User connected", socket.id);
 
-  // Apparat identifikatorini saqlash
   socket.on("apparatUlanish", (apparatId) => {
     console.log(`Apparat ulandi: ${apparatId}`);
     socket.apparatId = apparatId;
     socket.join(apparatId);
 
-    // Apparatga tegishli barcha fayllarni yuborish
     File.find({ apparatId })
       .sort({ uploadedAt: -1 })
       .then(async (files) => {
         const filesWithLinks = files.map((file) => {
           return {
             ...file.toObject(),
-            fileLink: file.fileUrl, // Endi bazadan fileUrl ni olish
+            fileLink: file.fileUrl,
           };
         });
         socket.emit("allFiles", filesWithLinks);
@@ -430,12 +326,10 @@ io.on("connection", (socket) => {
       });
   });
 
-  // Apparat tomonidan to'lov tasdiqlanganda
   socket.on("tolovTasdiqlandi", async (data) => {
     const { fileId, apparatId, amount, qogozSoni } = data;
 
     try {
-      // Statistikani yangilash
       const bugun = new Date();
       bugun.setHours(0, 0, 0, 0);
 
@@ -462,13 +356,11 @@ io.on("connection", (socket) => {
 
       await statistika.save();
 
-      // Apparat qog'oz sonini yangilash
       const apparat = await VendingApparat.findOne({ apparatId });
       if (apparat) {
         apparat.joriyQogozSoni -= qogozSoni || 0;
         await apparat.save();
 
-        // Qog'oz kam qolganda xabar berish
         if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
           io.emit("qogozKam", {
             apparatId,
@@ -482,12 +374,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // QR kod orqali to'lov holati o'zgarganda
   socket.on("qrTolovHolati", ({ apparatId, fileId, status }) => {
     io.to(apparatId).emit("qrTolovYangilandi", { fileId, status });
   });
 
-  // Admin paneldan qog'oz sonini yangilanganda
   socket.on("qogozSoniYangilandi", ({ apparatId, soni }) => {
     io.to(apparatId).emit("qogozSoniYangilandi", { apparatId, soni });
   });
@@ -503,14 +393,12 @@ const getFileLink = async (fileId) => {
 };
 
 app.use("/api/admin", adminRouter);
-
 app.use("/scan-file", ScanFileRouter);
 app.use("/api/click", clickRouter);
 app.use("/api/paid", PaidRouter);
-app.use("/api/vending-apparat", vendingApparatRouter); // Yangi qo'shildi
-app.use("/api/statistika", statistikaRouter); // Yangi qo'shildi
+app.use("/api/vending-apparat", vendingApparatRouter);
+app.use("/api/statistika", statistikaRouter);
 
-// Fayllarni faqat kerakli apparatga yuborish
 app.get("/files", async (req, res) => {
   try {
     const { apparatId } = req.query;
@@ -523,7 +411,7 @@ app.get("/files", async (req, res) => {
     const filesWithLinks = files.map((file) => {
       return {
         ...file.toObject(),
-        fileLink: file.fileUrl, // Endi bazadan fileUrl ni olish
+        fileLink: file.fileUrl,
       };
     });
     res.json(filesWithLinks);
@@ -533,14 +421,13 @@ app.get("/files", async (req, res) => {
   }
 });
 
-// Barcha fayllarni ko'rish (admin uchun)
 app.get("/admin/files", async (req, res) => {
   try {
     const files = await File.find().sort({ uploadedAt: -1 });
     const filesWithLinks = files.map((file) => {
       return {
         ...file.toObject(),
-        fileLink: file.fileUrl, // Endi bazadan fileUrl ni olish
+        fileLink: file.fileUrl,
       };
     });
     res.json({ muvaffaqiyat: true, malumot: filesWithLinks });
@@ -552,7 +439,7 @@ app.get("/admin/files", async (req, res) => {
     });
   }
 });
-// Barcha fayllarni o'chirish
+
 app.delete("/files/all-delete", async (req, res) => {
   try {
     const findFiles = await File.find();
@@ -565,7 +452,6 @@ app.delete("/files/all-delete", async (req, res) => {
   }
 });
 
-// Apparatga tegishli fayllarni o'chirish
 app.delete("/files/apparat/:apparatId", async (req, res) => {
   try {
     const { apparatId } = req.params;
@@ -581,7 +467,6 @@ app.get("/download/:fileId", async (req, res) => {
     const file = await File.findOne({ fileId: req.params.fileId });
     if (!file) return res.status(404).json({ error: "Fayl topilmadi" });
 
-    // Endi fileUrl bazadan olinadi
     const fileLink = file.fileUrl;
     const response = await axios.get(fileLink, { responseType: "stream" });
 
@@ -601,12 +486,10 @@ app.get("/", (req, res) => {
   res.send("Flash Print ishlayapti!");
 });
 
-// Long polling orqali botni ishga tushirish
 bot.launch({
   polling: true,
 });
 
-// Jarayonni to'xtatishda botni to'xtatish
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
