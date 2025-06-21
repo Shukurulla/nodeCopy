@@ -244,7 +244,8 @@ bot.on("document", async (ctx) => {
         ? `${(fileSizeKB / 1024).toFixed(2)} MB`
         : `${fileSizeKB.toFixed(2)} KB`;
 
-    let userProfilePhoto = null;
+    let userProfilePhoto =
+      "https://static.vecteezy.com/system/resources/previews/021/548/095/non_2x/default-profile-picture-avatar-user-avatar-icon-person-icon-head-icon-profile-picture-icons-default-anonymous-user-male-and-female-businessman-photo-placeholder-social-network-avatar-portrait-free-vector.jpg";
 
     try {
       const photos = await ctx.telegram.getUserProfilePhotos(user.id, 0, 1);
@@ -257,7 +258,8 @@ bot.on("document", async (ctx) => {
           await axios.head(userProfilePhoto);
         } catch (error) {
           console.log("Profil rasmi havolasi ishlamayapti:", error);
-          userProfilePhoto = null;
+          userProfilePhoto =
+            "https://static.vecteezy.com/system/resources/previews/021/548/095/non_2x/default-profile-picture-avatar-user-avatar-icon-person-icon-head-icon-profile-picture-icons-default-anonymous-user-male-and-female-businessman-photo-placeholder-social-network-avatar-portrait-free-vector.jpg";
         }
       }
     } catch (error) {
