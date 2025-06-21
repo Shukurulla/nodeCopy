@@ -236,6 +236,14 @@ bot.on("document", async (ctx) => {
     const uniqueCode = Math.floor(1000 + Math.random() * 9000).toString();
     const fileUrl = await getFileLink(file.file_id);
 
+    // Calculate file size in KB and format it
+    const fileSizeBytes = file.file_size; // Size in bytes
+    const fileSizeKB = fileSizeBytes / 1024; // Convert to KB
+    const fileSizeFormatted =
+      fileSizeKB >= 1024
+        ? `${(fileSizeKB / 1024).toFixed(2)} MB`
+        : `${fileSizeKB.toFixed(2)} KB`;
+
     let userProfilePhoto = null;
 
     try {
@@ -263,6 +271,7 @@ bot.on("document", async (ctx) => {
       uniqueCode,
       apparatId,
       fileUrl,
+      fileSize: fileSizeFormatted, // Use formatted file size
       user: {
         username: user.username || "Noma'lum",
         firstName: user.first_name || "Noma'lum",
@@ -276,6 +285,8 @@ bot.on("document", async (ctx) => {
 
     const caption = `✅ Fayl qabul qilindi!\n📄 Fayl nomi: ${
       fileData.fileName
+    }\n📏 Fayl hajmi: ${
+      fileData.fileSize
     }\n🔑 Unikal kod: ${uniqueCode}\n👤 Foydalanuvchi: ${
       fileData.user.username || "Noma'lum"
     }\n🏢 Vending apparat: ${apparatId}\nUshbu kodni saqlab qo'ying.`;
