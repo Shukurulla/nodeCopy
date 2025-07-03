@@ -7,6 +7,7 @@ import { Server } from "socket.io";
 import axios from "axios";
 import cors from "cors";
 import clickRouter from "./router/click.routes.js";
+import paymeRouter from "./router/payme.routes.js"; // Payme router qo'shildi
 import ScanFileRouter from "./router/scanFile.routes.js";
 import scanFileModel from "./model/scanFile.model.js";
 import File from "./model/file.model.js";
@@ -408,6 +409,7 @@ const getFileLink = async (fileId) => {
 app.use("/api/admin", adminRouter);
 app.use("/scan-file", ScanFileRouter);
 app.use("/api/click", clickRouter);
+app.use("/api/payme", paymeRouter); // Payme router qo'shildi
 app.use("/api/paid", PaidRouter);
 app.use("/api/vending-apparat", vendingApparatRouter);
 app.use("/api/statistika", statistikaRouter);
