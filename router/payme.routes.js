@@ -40,11 +40,11 @@ const checkPaymeAuth = (req) => {
   if (!auth || !auth.startsWith("Basic ")) {
     return false;
   }
-
+  
   const encoded = auth.split(" ")[1];
   const decoded = Buffer.from(encoded, "base64").toString();
   const [login, password] = decoded.split(":");
-
+  
   // Payme har doim "Paycom" login va secret key parolni kutadi
   return login === "Paycom" && password === process.env.PAYME_SECRET_KEY;
 };
@@ -65,59 +65,268 @@ const sendPaymeResponse = (res, result, error = null) => {
   res.json(response);
 };
 
-// Middleware - authorization va request ID
-router.use((req, res, next) => {
-  res.locals.requestId = req.body.id || null;
+// QR kod va to'lov linkini olish - BU ENDPOINT AUTHORIZATION TALAB QILMAYDI
+router.post("/get-payme-link", async (req, res) => {
+  console.log("=== GET PAYME LINK ENDPOINT ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { orderId, amount } = req.body;
 
-  // Debug uchun
-  console.log("Payme request headers:", req.headers);
-  console.log("Authorization header:", req.headers.authorization);
-  console.log("Expected secret key:", process.env.PAYME_SECRET_KEY);
+    if (!orderId || !amount) {
+      return res.json({
+        status: "error",
+        message: "Iltimos, orderId va amount ni kiriting",
+      });
+    }
 
-  if (!checkPaymeAuth(req)) {
-    console.log("Authorization failed!");
-    return sendPaymeResponse(res, null, {
-      code: PaymeError.InvalidAuthorization,
-      message: "Unauthorized",
+    // Faylni tekshirish
+    const uploadedFile = await File.findById(orderId);
+    const scannedFile = await scanFileModel.findById(orderId);
+
+    if (!uploadedFile && !scannedFile) {
+      return res.json({
+        status: "error",
+        message: "Bunday fayl topilmadi",
+      });
+    }
+
+    // Payme linki yaratish
+    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${orderId}`;
+    
+    // QR kod yaratish
+    const qrCode = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(paymeLink)}&size=300x300`;
+
+    console.log("Generated Payme link:", paymeLink);
+    console.log("Generated QR code:", qrCode);
+
+    res.json({
+      status: "success",
+      data: {
+        link: paymeLink,
+        qr: qrCode,
+        amount: amount,
+        orderId: orderId,
+      },
+    });
+  } catch (error) {
+    console.error("Payme link yaratishda xatolik:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.message,
     });
   }
-
-  console.log("Authorization successful!");
-  next();
 });
 
-// Asosiy endpoint
+// Scan file uchun Payme link - BU HAM AUTHORIZATION TALAB QILMAYDI
+router.post("/get-scan-payme-link", async (req, res) => {
+  console.log("=== GET SCAN PAYME LINK ENDPOINT ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { code, amount } = req.body;
+
+    if (!code || !amount) {
+      return res.json({
+        status: "error",
+        message: "Iltimos, code va amount ni kiriting",
+      });
+    }
+
+    const scanFile = await scanFileModel.findOne({ code });
+    if (!scanFile) {
+      return res.json({
+        status: "error",
+        message: "Bunday kod topilmadi",
+      });
+    }
+
+    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${scanFile._id}`;
+    const qrCode = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(paymeLink)}&size=300x300`;
+
+    res.json({
+      status: "success",
+      data: {
+        link: paymeLink,
+        qr: qrCode,
+        amount: amount,
+        orderId: scanFile._id,
+      },
+    });
+  } catch (error) {
+    console.error("Scan file uchun Payme link yaratishda xatolik:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
+// To'lov holatini tekshirish - BU HAM AUTHORIZATION TALAB QILMAYDI
+router.post("/check-payment-status", async (req, res) => {
+  console.log("=== CHECK PAYMENT STATUS ENDPOINT ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  
+  try {
+    const { order_id } = req.body;
+
+    const payment = await paidModel.findOne({
+      $or: [
+        { "serviceData._id": order_id },
+        { "serviceData.fileUrl": order_id },
+      ],
+      status: "paid",
+    });
+
+    if (!payment) {
+      return res.json({
+        status: "error",
+        message: "To'lov topilmadi yoki hali to'lanmagan",
+      });
+    }
+
+    res.json({
+      status: "success",
+      message: "To'lov muvaffaqiyatli amalga oshirilgan",
+      data: {
+        amount: payment.amount,
+        date: payment.date,
+        paymentMethod: payment.paymeTransactionId ? "payme" : "click",
+      },
+    });
+  } catch (error) {
+    console.error("To'lov holatini tekshirishda xatolik:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
+// Debug endpoint'lar
+router.get("/debug", (req, res) => {
+  console.log("=== PAYME DEBUG ENDPOINT ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  
+  res.json({
+    message: "Payme endpoint ishlayapti",
+    env_check: {
+      PAYME_SECRET_KEY: process.env.PAYME_SECRET_KEY ? "Mavjud" : "Mavjud emas",
+      PAYME_MERCHANT_ID: process.env.PAYME_MERCHANT_ID ? "Mavjud" : "Mavjud emas",
+      PAYME_SECRET_KEY_LENGTH: process.env.PAYME_SECRET_KEY ? process.env.PAYME_SECRET_KEY.length : 0,
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+router.post("/test", (req, res) => {
+  console.log("=== PAYME TEST ENDPOINT ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  
+  res.json({
+    message: "Test tugallandi",
+    receivedHeaders: req.headers,
+    receivedBody: req.body,
+  });
+});
+
+// ASOSIY PAYME WEBHOOK ENDPOINT - BU AUTHORIZATION TALAB QILADI
 router.post("/", async (req, res) => {
+  console.log("=== PAYME MAIN WEBHOOK ENDPOINT ===");
+  console.log("Headers:", JSON.stringify(req.headers, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
+  console.log("IP Address:", req.ip || req.connection.remoteAddress);
+  
   try {
     const { method, params } = req.body;
-
+    
+    // Request ID ni olish
+    res.locals.requestId = req.body.id || null;
+    
+    // Authorization tekshirish
+    const auth = req.headers.authorization;
+    console.log("Authorization header:", auth);
+    
+    if (!auth || !auth.startsWith("Basic ")) {
+      console.log("XATO: Authorization header yo'q yoki noto'g'ri format");
+      console.log("Expected: Basic auth");
+      console.log("Received:", auth ? auth.substring(0, 20) + "..." : "null");
+      
+      return sendPaymeResponse(res, null, {
+        code: PaymeError.InvalidAuthorization,
+        message: "Unauthorized - No Basic Auth",
+      });
+    }
+    
+    try {
+      const encoded = auth.split(" ")[1];
+      const decoded = Buffer.from(encoded, "base64").toString();
+      const [login, password] = decoded.split(":");
+      
+      console.log("Decoded login:", login);
+      console.log("Decoded password:", password);
+      console.log("Expected login: Paycom");
+      console.log("Expected password:", process.env.PAYME_SECRET_KEY);
+      console.log("Login match:", login === "Paycom");
+      console.log("Password match:", password === process.env.PAYME_SECRET_KEY);
+      
+      if (login !== "Paycom" || password !== process.env.PAYME_SECRET_KEY) {
+        console.log("XATO: Authorization failed - credentials mismatch");
+        return sendPaymeResponse(res, null, {
+          code: PaymeError.InvalidAuthorization,
+          message: "Unauthorized - Invalid credentials",
+        });
+      }
+    } catch (decodeError) {
+      console.log("XATO: Base64 decode error:", decodeError.message);
+      return sendPaymeResponse(res, null, {
+        code: PaymeError.InvalidAuthorization,
+        message: "Unauthorized - Decode error",
+      });
+    }
+    
+    console.log("✅ Authorization successful!");
+    console.log("Method:", method);
+    
+    // Metodga qarab yo'naltirish
     switch (method) {
       case PaymeMethod.CheckPerformTransaction:
+        console.log("Calling CheckPerformTransaction");
         await checkPerformTransaction(req, res, params);
         break;
       case PaymeMethod.CreateTransaction:
+        console.log("Calling CreateTransaction");
         await createTransaction(req, res, params);
         break;
       case PaymeMethod.PerformTransaction:
+        console.log("Calling PerformTransaction");
         await performTransaction(req, res, params);
         break;
       case PaymeMethod.CheckTransaction:
+        console.log("Calling CheckTransaction");
         await checkTransaction(req, res, params);
         break;
       case PaymeMethod.CancelTransaction:
+        console.log("Calling CancelTransaction");
         await cancelTransaction(req, res, params);
         break;
       case PaymeMethod.GetStatement:
+        console.log("Calling GetStatement");
         await getStatement(req, res, params);
         break;
       default:
+        console.log("XATO: Unknown method:", method);
         sendPaymeResponse(res, null, {
           code: PaymeError.CouldNotPerform,
           message: "Method not found",
         });
     }
   } catch (error) {
-    console.error("Payme error:", error);
+    console.error("XATO: Payme endpoint error:", error);
     sendPaymeResponse(res, null, {
       code: PaymeError.CouldNotPerform,
       message: "Internal server error",
@@ -128,7 +337,7 @@ router.post("/", async (req, res) => {
 // 1. CheckPerformTransaction - To'lovni bajarish mumkinligini tekshirish
 async function checkPerformTransaction(req, res, params) {
   const { account, amount } = params;
-
+  
   if (!account || !account.order_id) {
     return sendPaymeResponse(res, null, {
       code: PaymeError.InvalidAccount,
@@ -175,8 +384,8 @@ async function createTransaction(req, res, params) {
   const { id, time, amount, account } = params;
 
   // Tranzaksiya mavjudligini tekshirish
-  let transaction = await paidModel.findOne({
-    paymeTransactionId: id,
+  let transaction = await paidModel.findOne({ 
+    paymeTransactionId: id 
   });
 
   if (transaction) {
@@ -227,8 +436,8 @@ async function createTransaction(req, res, params) {
 async function performTransaction(req, res, params) {
   const { id } = params;
 
-  const transaction = await paidModel.findOne({
-    paymeTransactionId: id,
+  const transaction = await paidModel.findOne({ 
+    paymeTransactionId: id 
   });
 
   if (!transaction) {
@@ -242,8 +451,7 @@ async function performTransaction(req, res, params) {
     return sendPaymeResponse(res, {
       transaction: transaction._id.toString(),
       state: TransactionState.Paid,
-      perform_time:
-        transaction.paymePerformTime || transaction.updatedAt.getTime(),
+      perform_time: transaction.paymePerformTime || transaction.updatedAt.getTime(),
     });
   }
 
@@ -262,10 +470,7 @@ async function performTransaction(req, res, params) {
 
   // Statistikani yangilash (faqat uploaded file uchun)
   if (transaction.serviceData.apparatId) {
-    await updateStatistics(
-      transaction.serviceData.apparatId,
-      transaction.amount
-    );
+    await updateStatistics(transaction.serviceData.apparatId, transaction.amount);
   }
 
   // Socket.io orqali real-time xabar
@@ -288,8 +493,8 @@ async function performTransaction(req, res, params) {
 async function checkTransaction(req, res, params) {
   const { id } = params;
 
-  const transaction = await paidModel.findOne({
-    paymeTransactionId: id,
+  const transaction = await paidModel.findOne({ 
+    paymeTransactionId: id 
   });
 
   if (!transaction) {
@@ -302,12 +507,9 @@ async function checkTransaction(req, res, params) {
   const result = {
     transaction: transaction._id.toString(),
     create_time: transaction.paymeCreateTime,
-    state:
-      transaction.status === "paid"
-        ? TransactionState.Paid
-        : transaction.status === "cancelled"
-        ? TransactionState.PaidCanceled
-        : TransactionState.Pending,
+    state: transaction.status === "paid" ? TransactionState.Paid : 
+           transaction.status === "cancelled" ? TransactionState.PaidCanceled : 
+           TransactionState.Pending,
   };
 
   if (transaction.paymePerformTime) {
@@ -325,8 +527,8 @@ async function checkTransaction(req, res, params) {
 async function cancelTransaction(req, res, params) {
   const { id, reason } = params;
 
-  const transaction = await paidModel.findOne({
-    paymeTransactionId: id,
+  const transaction = await paidModel.findOne({ 
+    paymeTransactionId: id 
   });
 
   if (!transaction) {
@@ -345,10 +547,7 @@ async function cancelTransaction(req, res, params) {
 
     // Statistikani qaytarish (agar kerak bo'lsa)
     if (transaction.serviceData.apparatId) {
-      await reverseStatistics(
-        transaction.serviceData.apparatId,
-        transaction.amount
-      );
+      await reverseStatistics(transaction.serviceData.apparatId, transaction.amount);
     }
 
     return sendPaymeResponse(res, {
@@ -375,18 +574,16 @@ async function cancelTransaction(req, res, params) {
 async function getStatement(req, res, params) {
   const { from, to } = params;
 
-  const transactions = await paidModel
-    .find({
-      paymeTransactionId: { $exists: true },
-      createdAt: {
-        $gte: new Date(from),
-        $lte: new Date(to),
-      },
-    })
-    .sort({ createdAt: 1 });
+  const transactions = await paidModel.find({
+    paymeTransactionId: { $exists: true },
+    createdAt: {
+      $gte: new Date(from),
+      $lte: new Date(to),
+    },
+  }).sort({ createdAt: 1 });
 
   const result = {
-    transactions: transactions.map((t) => ({
+    transactions: transactions.map(t => ({
       id: t.paymeTransactionId,
       time: t.paymeCreateTime,
       amount: t.amount,
@@ -397,12 +594,9 @@ async function getStatement(req, res, params) {
       perform_time: t.paymePerformTime || 0,
       cancel_time: t.paymeCancelTime || 0,
       transaction: t._id.toString(),
-      state:
-        t.status === "paid"
-          ? TransactionState.Paid
-          : t.status === "cancelled"
-          ? TransactionState.PaidCanceled
-          : TransactionState.Pending,
+      state: t.status === "paid" ? TransactionState.Paid : 
+             t.status === "cancelled" ? TransactionState.PaidCanceled : 
+             TransactionState.Pending,
       reason: t.paymeReason || null,
     })),
   };
@@ -442,12 +636,6 @@ async function updateStatistics(apparatId, amount) {
     if (apparat) {
       apparat.joriyQogozSoni -= 1;
       await apparat.save();
-
-      // Qog'oz kam bo'lsa ogohlantirish
-      if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
-        // Socket.io orqali ogohlantirish yuborish
-        // req.app.get("io").emit("qogozKam", { ... });
-      }
     }
   } catch (error) {
     console.error("Statistikani yangilashda xatolik:", error);
@@ -468,10 +656,7 @@ async function reverseStatistics(apparatId, amount) {
     if (statistika) {
       statistika.foydalanishSoni = Math.max(0, statistika.foydalanishSoni - 1);
       statistika.daromad = Math.max(0, statistika.daromad - amount);
-      statistika.ishlatilganQogoz = Math.max(
-        0,
-        statistika.ishlatilganQogoz - 1
-      );
+      statistika.ishlatilganQogoz = Math.max(0, statistika.ishlatilganQogoz - 1);
       await statistika.save();
     }
 
@@ -485,135 +670,5 @@ async function reverseStatistics(apparatId, amount) {
     console.error("Statistikani qaytarishda xatolik:", error);
   }
 }
-
-// QR kod va to'lov linkini olish
-router.post("/get-payme-link", async (req, res) => {
-  try {
-    const { orderId, amount } = req.body;
-
-    if (!orderId || !amount) {
-      return res.json({
-        status: "error",
-        message: "Iltimos, orderId va amount ni kiriting",
-      });
-    }
-
-    // Faylni tekshirish
-    const uploadedFile = await File.findById(orderId);
-    const scannedFile = await scanFileModel.findById(orderId);
-
-    if (!uploadedFile && !scannedFile) {
-      return res.json({
-        status: "error",
-        message: "Bunday fayl topilmadi",
-      });
-    }
-
-    // Payme linki yaratish
-    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${orderId}`;
-
-    // QR kod yaratish
-    const qrCode = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
-      paymeLink
-    )}&size=300x300`;
-
-    res.json({
-      status: "success",
-      data: {
-        link: paymeLink,
-        qr: qrCode,
-        amount: amount,
-        orderId: orderId,
-      },
-    });
-  } catch (error) {
-    console.error("Payme link yaratishda xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
-  }
-});
-
-// Scan file uchun Payme link
-router.post("/get-scan-payme-link", async (req, res) => {
-  try {
-    const { code, amount } = req.body;
-
-    if (!code || !amount) {
-      return res.json({
-        status: "error",
-        message: "Iltimos, code va amount ni kiriting",
-      });
-    }
-
-    const scanFile = await scanFileModel.findOne({ code });
-    if (!scanFile) {
-      return res.json({
-        status: "error",
-        message: "Bunday kod topilmadi",
-      });
-    }
-
-    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${scanFile._id}`;
-    const qrCode = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
-      paymeLink
-    )}&size=300x300`;
-
-    res.json({
-      status: "success",
-      data: {
-        link: paymeLink,
-        qr: qrCode,
-        amount: amount,
-        orderId: scanFile._id,
-      },
-    });
-  } catch (error) {
-    console.error("Scan file uchun Payme link yaratishda xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
-  }
-});
-
-// To'lov holatini tekshirish
-router.post("/check-payment-status", async (req, res) => {
-  try {
-    const { order_id } = req.body;
-
-    const payment = await paidModel.findOne({
-      $or: [
-        { "serviceData._id": order_id },
-        { "serviceData.fileUrl": order_id },
-      ],
-      status: "paid",
-    });
-
-    if (!payment) {
-      return res.json({
-        status: "error",
-        message: "To'lov topilmadi yoki hali to'lanmagan",
-      });
-    }
-
-    res.json({
-      status: "success",
-      message: "To'lov muvaffaqiyatli amalga oshirilgan",
-      data: {
-        amount: payment.amount,
-        date: payment.date,
-        paymentMethod: payment.paymeTransactionId ? "payme" : "click",
-      },
-    });
-  } catch (error) {
-    console.error("To'lov holatini tekshirishda xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
-  }
-});
 
 export default router;
