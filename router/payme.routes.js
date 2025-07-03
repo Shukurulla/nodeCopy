@@ -34,7 +34,7 @@ const PaymeMethod = {
   GetStatement: "GetStatement",
 };
 
-// Authorization tekshirish
+// Authorization tekshirish - Payme formatiga muvofiq
 const checkPaymeAuth = (req) => {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Basic ")) {
@@ -45,6 +45,7 @@ const checkPaymeAuth = (req) => {
   const decoded = Buffer.from(encoded, "base64").toString();
   const [login, password] = decoded.split(":");
 
+  // Payme har doim "Paycom" login va secret key parolni kutadi
   return login === "Paycom" && password === process.env.PAYME_SECRET_KEY;
 };
 
@@ -68,13 +69,20 @@ const sendPaymeResponse = (res, result, error = null) => {
 router.use((req, res, next) => {
   res.locals.requestId = req.body.id || null;
 
+  // Debug uchun
+  console.log("Payme request headers:", req.headers);
+  console.log("Authorization header:", req.headers.authorization);
+  console.log("Expected secret key:", process.env.PAYME_SECRET_KEY);
+
   if (!checkPaymeAuth(req)) {
+    console.log("Authorization failed!");
     return sendPaymeResponse(res, null, {
       code: PaymeError.InvalidAuthorization,
       message: "Unauthorized",
     });
   }
 
+  console.log("Authorization successful!");
   next();
 });
 
