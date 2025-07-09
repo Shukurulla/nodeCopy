@@ -422,7 +422,7 @@ async function createTransaction(req, res, params, id) {
     );
   } catch (error) {
     console.error("CreateTransaction error:", error);
-    sendPaymeError(res, PaymeError.CouldNotPerform, message, id);
+    sendPaymeError(res, PaymeError.InvalidAccount, message, id);
   }
 }
 
