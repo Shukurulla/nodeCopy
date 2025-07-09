@@ -347,7 +347,7 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// 1. CheckPerformTransaction
+// 1. CheckPerformTransaction - TUZATILGAN
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
@@ -388,6 +388,21 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
+    // YANGI: Pending tranzaksiya mavjudligini tekshirish
+    const existingPendingTransaction = await paidModel.findOne({
+      "serviceData._id": account.order_id,
+      status: "pending",
+    });
+
+    if (existingPendingTransaction) {
+      return sendPaymeError(
+        res,
+        PaymeError.TransactionNotAllowed,
+        "Another transaction is pending for this order",
+        id
+      );
+    }
+
     sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
@@ -395,12 +410,12 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CreateTransaction - TO'LIQ TUZATILGAN
+// 2. CreateTransaction - MUAMMO HAL QILINDI
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
 
-    // Aynan shu tranzaksiya mavjudligini tekshirish
+    // 1. Aynan shu tranzaksiya mavjudligini tekshirish
     let transaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
@@ -426,7 +441,7 @@ async function createTransaction(req, res, params, id) {
       }
     }
 
-    // Faylni tekshirish
+    // 2. Faylni tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
@@ -435,18 +450,29 @@ async function createTransaction(req, res, params, id) {
       return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
-    // YANGI: Shu order_id uchun boshqa tranzaksiyalar mavjudligini tekshirish
-    const existingTransactions = await paidModel.find({
+    // 3. KRITIK: Shu order_id uchun boshqa aktiv tranzaksiyalar tekshirish
+    const existingActiveTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
       paymeTransactionId: { $exists: true },
+      $or: [{ status: "pending" }, { status: "paid" }],
     });
 
-    // Boshqa pending tranzaksiya bor-yo'qligini tekshirish
-    const otherPendingTransaction = existingTransactions.find(
+    console.log(
+      "Existing transactions for order:",
+      account.order_id,
+      existingActiveTransactions
+    );
+
+    // Agar boshqa pending tranzaksiya mavjud bo'lsa
+    const otherPendingTransaction = existingActiveTransactions.find(
       (t) => t.paymeTransactionId !== transactionId && t.status === "pending"
     );
 
     if (otherPendingTransaction) {
+      console.log(
+        "Found other pending transaction:",
+        otherPendingTransaction.paymeTransactionId
+      );
       return sendPaymeError(
         res,
         PaymeError.TransactionNotAllowed,
@@ -455,12 +481,16 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Allaqachon to'langan tranzaksiya bor-yo'qligini tekshirish
-    const paidTransaction = existingTransactions.find(
+    // Agar allaqachon to'langan bo'lsa
+    const paidTransaction = existingActiveTransactions.find(
       (t) => t.status === "paid"
     );
 
     if (paidTransaction) {
+      console.log(
+        "Found paid transaction:",
+        paidTransaction.paymeTransactionId
+      );
       return sendPaymeError(
         res,
         PaymeError.TransactionNotAllowed,
@@ -469,7 +499,7 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Yangi tranzaksiya yaratish
+    // 4. Yangi tranzaksiya yaratish
     transaction = await paidModel.create({
       paymeTransactionId: transactionId,
       serviceData: serviceData,
@@ -478,6 +508,8 @@ async function createTransaction(req, res, params, id) {
       paymeCreateTime: time,
       paymentMethod: "payme",
     });
+
+    console.log("Created new transaction:", transaction._id.toString());
 
     sendPaymeResponse(
       res,
