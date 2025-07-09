@@ -322,7 +322,7 @@ async function checkPerformTransaction(req, res, params, id) {
       return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
-    if (!amount || amount <= 0) {
+    if (!amount || amount <= 0 || amount.length > 7) {
       return sendPaymeError(
         res,
         PaymeError.InvalidAmount,
