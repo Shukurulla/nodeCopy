@@ -319,7 +319,12 @@ async function checkPerformTransaction(req, res, params, id) {
     const { account, amount } = params;
 
     if (!account || !account.order_id) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAccount,
+        JSON.parse(message),
+        id
+      );
     }
 
     if (!amount || amount <= 0) {
@@ -336,7 +341,12 @@ async function checkPerformTransaction(req, res, params, id) {
     const scannedFile = await scanFileModel.findById(account.order_id);
 
     if (!uploadedFile && !scannedFile) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAccount,
+        JSON.parse(message),
+        id
+      );
     }
 
     // Allaqachon to'langanligini tekshirish
@@ -398,7 +408,12 @@ async function createTransaction(req, res, params, id) {
     const serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAccount,
+        JSON.parse(message),
+        id
+      );
     }
 
     // Yangi tranzaksiya yaratish
