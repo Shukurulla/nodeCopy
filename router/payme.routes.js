@@ -40,7 +40,11 @@ const paymeCheckToken = (req, res, next) => {
     const { id } = req.body;
     const authHeader = req.headers.authorization;
 
+    console.log("Auth header:", authHeader);
+    console.log("Request ID:", id);
+
     if (!authHeader || !authHeader.startsWith("Basic ")) {
+      console.log("No Basic auth header");
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
@@ -51,6 +55,7 @@ const paymeCheckToken = (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
     if (!token) {
+      console.log("No token found");
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
@@ -61,7 +66,30 @@ const paymeCheckToken = (req, res, next) => {
 
     try {
       const decoded = base64.decode(token);
-      if (!decoded.includes(process.env.PAYME_SECRET_KEY)) {
+      console.log("Decoded token:", decoded);
+
+      // Test va production keylarni tekshirish
+      const testKey = process.env.PAYME_TEST_KEY;
+      const prodKey = process.env.PAYME_SECRET_KEY;
+
+      console.log("Test key:", testKey);
+      console.log("Prod key:", prodKey);
+
+      // Paycom:KEY formatida keladi
+      const expectedTestFormat = `Paycom:${testKey}`;
+      const expectedProdFormat = `Paycom:${prodKey}`;
+
+      console.log("Expected test format:", expectedTestFormat);
+      console.log("Expected prod format:", expectedProdFormat);
+
+      // Test yoki production keyni tekshirish
+      const isValidKey =
+        decoded === expectedTestFormat || decoded === expectedProdFormat;
+
+      if (!isValidKey) {
+        console.log("Invalid key - decoded:", decoded);
+        console.log("Expected test:", expectedTestFormat);
+        console.log("Expected prod:", expectedProdFormat);
         return sendPaymeError(
           res,
           PaymeError.InvalidAuthorization,
@@ -69,7 +97,10 @@ const paymeCheckToken = (req, res, next) => {
           id
         );
       }
+
+      console.log("Authentication successful");
     } catch (decodeError) {
+      console.log("Decode error:", decodeError);
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
@@ -80,6 +111,7 @@ const paymeCheckToken = (req, res, next) => {
 
     next();
   } catch (error) {
+    console.log("Auth middleware error:", error);
     const { id } = req.body;
     return sendPaymeError(
       res,
