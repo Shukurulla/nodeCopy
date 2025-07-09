@@ -167,9 +167,12 @@ router.post("/get-payme-link", async (req, res) => {
         message: "Bunday fayl topilmadi",
       });
     }
+    const r = base64.encode(
+      `m=${PAYME_MERCHANT_ID};ac.order_id=${orderId};price=${amount}`
+    );
 
     // Payme linki yaratish
-    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${orderId}`;
+    const paymeLink = `https://checkout.paycom.uz/${r}`;
 
     res.json({
       status: "success",
