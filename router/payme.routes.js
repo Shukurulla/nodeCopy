@@ -395,7 +395,7 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CreateTransaction - TUZATILGAN
+// 2. CreateTransaction - TO'LIQ TUZATILGAN
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -435,14 +435,18 @@ async function createTransaction(req, res, params, id) {
       return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
-    // YANGI: Shu order_id uchun boshqa pending tranzaksiya mavjudligini tekshirish
-    const existingPendingTransaction = await paidModel.findOne({
+    // YANGI: Shu order_id uchun boshqa tranzaksiyalar mavjudligini tekshirish
+    const existingTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
-      status: "pending",
-      paymeTransactionId: { $ne: transactionId }, // Boshqa transaction ID
+      paymeTransactionId: { $exists: true },
     });
 
-    if (existingPendingTransaction) {
+    // Boshqa pending tranzaksiya bor-yo'qligini tekshirish
+    const otherPendingTransaction = existingTransactions.find(
+      (t) => t.paymeTransactionId !== transactionId && t.status === "pending"
+    );
+
+    if (otherPendingTransaction) {
       return sendPaymeError(
         res,
         PaymeError.TransactionNotAllowed,
@@ -451,13 +455,12 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Allaqachon to'langan buyurtmani tekshirish
-    const existingPaidTransaction = await paidModel.findOne({
-      "serviceData._id": account.order_id,
-      status: "paid",
-    });
+    // Allaqachon to'langan tranzaksiya bor-yo'qligini tekshirish
+    const paidTransaction = existingTransactions.find(
+      (t) => t.status === "paid"
+    );
 
-    if (existingPaidTransaction) {
+    if (paidTransaction) {
       return sendPaymeError(
         res,
         PaymeError.TransactionNotAllowed,
