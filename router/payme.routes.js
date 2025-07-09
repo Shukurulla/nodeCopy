@@ -526,21 +526,24 @@ async function checkTransaction(req, res, params, id) {
       );
     }
 
+    // Asosiy result obyektini yaratish
     const result = {
       transaction: transaction._id.toString(),
       create_time: transaction.paymeCreateTime,
-      state:
-        transaction.status === "paid"
-          ? TransactionState.Paid
-          : transaction.status === "cancelled"
-          ? TransactionState.PaidCanceled
-          : TransactionState.Pending,
+      state: getTransactionState(transaction),
     };
 
+    // Perform time mavjud bo'lsa qo'shish
     if (transaction.paymePerformTime) {
       result.perform_time = transaction.paymePerformTime;
     }
 
+    // Cancel time mavjud bo'lsa qo'shish
+    if (transaction.paymeCancelTime) {
+      result.cancel_time = transaction.paymeCancelTime;
+    }
+
+    // Bekor qilish sababi mavjud bo'lsa qo'shish
     if (transaction.status === "cancelled" && transaction.paymeReason) {
       result.reason = transaction.paymeReason;
     }
@@ -577,6 +580,21 @@ async function cancelTransaction(req, res, params, id) {
 
     const cancelTime = Date.now();
 
+    // Allaqachon bekor qilingan tranzaksiya
+    if (transaction.status === "cancelled") {
+      return sendPaymeResponse(
+        res,
+        {
+          transaction: transaction._id.toString(),
+          cancel_time: transaction.paymeCancelTime, // Mavjud cancel_time ni qaytarish
+          state: transaction.paymePerformTime
+            ? TransactionState.PaidCanceled // -2: To'langan keyin bekor qilingan
+            : TransactionState.PendingCanceled, // -1: Pending holatda bekor qilingan
+        },
+        id
+      );
+    }
+
     if (transaction.status === "paid") {
       // To'langan tranzaksiyani bekor qilish
       transaction.status = "cancelled";
@@ -597,7 +615,7 @@ async function cancelTransaction(req, res, params, id) {
         {
           transaction: transaction._id.toString(),
           cancel_time: cancelTime,
-          state: TransactionState.PaidCanceled,
+          state: TransactionState.PaidCanceled, // -2
         },
         id
       );
@@ -613,7 +631,7 @@ async function cancelTransaction(req, res, params, id) {
         {
           transaction: transaction._id.toString(),
           cancel_time: cancelTime,
-          state: TransactionState.PendingCanceled,
+          state: TransactionState.PendingCanceled, // -1
         },
         id
       );
