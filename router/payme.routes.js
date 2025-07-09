@@ -395,12 +395,12 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CreateTransaction
+// 2. CreateTransaction - TUZATILGAN
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
 
-    // Tranzaksiya mavjudligini tekshirish
+    // Aynan shu tranzaksiya mavjudligini tekshirish
     let transaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
@@ -433,6 +433,37 @@ async function createTransaction(req, res, params, id) {
 
     if (!serviceData) {
       return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+    }
+
+    // YANGI: Shu order_id uchun boshqa pending tranzaksiya mavjudligini tekshirish
+    const existingPendingTransaction = await paidModel.findOne({
+      "serviceData._id": account.order_id,
+      status: "pending",
+      paymeTransactionId: { $ne: transactionId }, // Boshqa transaction ID
+    });
+
+    if (existingPendingTransaction) {
+      return sendPaymeError(
+        res,
+        PaymeError.TransactionNotAllowed,
+        "Another transaction is pending for this order",
+        id
+      );
+    }
+
+    // Allaqachon to'langan buyurtmani tekshirish
+    const existingPaidTransaction = await paidModel.findOne({
+      "serviceData._id": account.order_id,
+      status: "paid",
+    });
+
+    if (existingPaidTransaction) {
+      return sendPaymeError(
+        res,
+        PaymeError.TransactionNotAllowed,
+        "Order already paid",
+        id
+      );
     }
 
     // Yangi tranzaksiya yaratish
