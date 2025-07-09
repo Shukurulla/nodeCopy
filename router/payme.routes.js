@@ -168,7 +168,7 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount}`
+      `m=686687d05e3cb0be785daea7;ac.order_id=${orderId};a=${amount}`
     );
 
     // Payme linki yaratish
