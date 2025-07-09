@@ -69,8 +69,8 @@ const paymeCheckToken = (req, res, next) => {
       console.log("Decoded token:", decoded);
 
       // Test va production keylarni tekshirish
-      const testKey = process.env.PAYME_TEST_KEY;
-      const prodKey = process.env.PAYME_SECRET_KEY;
+      const testKey = process.env.PAYME_TEST_KEY?.replace(/"/g, ""); // Qo'shtirnoqni olib tashlash
+      const prodKey = process.env.PAYME_SECRET_KEY?.replace(/"/g, "");
 
       console.log("Test key:", testKey);
       console.log("Prod key:", prodKey);
