@@ -205,9 +205,6 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link - BU HAM AUTHORIZATION TALAB QILMAYDI
-// router/payme.routes.js - Tuzatilgan get-payme-link endpoint
-
 // QR kod va to'lov linkini olish - BU ENDPOINT AUTHORIZATION TALAB QILMAYDI
 router.post("/get-payme-link", async (req, res) => {
   try {
@@ -231,16 +228,16 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    // YANGI: To'g'ri format bilan base64 yaratish
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
-    // Payme uchun parametrlarni to'g'ri formatda yaratish
+    // FAQAT ZARUR PARAMETRLAR
     const params = {
       m: merchantId,
       ac: {
         order_id: orderId,
       },
       a: amount * 100, // Payme tiyin bilan ishlaydi (1 so'm = 100 tiyin)
+      // "c" parametrini olib tashladik!
     };
 
     // Base64 encoding
@@ -267,7 +264,7 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link - YANGI TUZATILGAN VERSIYA
+// Scan file uchun Payme link
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
@@ -289,14 +286,14 @@ router.post("/get-scan-payme-link", async (req, res) => {
 
     const merchantId = process.env.PAYME_MERCHANT_ID;
 
-    // Payme uchun parametrlarni to'g'ri formatda yaratish
+    // FAQAT ZARUR PARAMETRLAR
     const params = {
       m: merchantId,
       ac: {
         order_id: scanFile._id.toString(),
       },
       a: amount * 100, // Payme tiyin bilan ishlaydi
-      c: `https://my.click.uz/services/pay?service_id=${process.env.CLICK_SERVICE_ID}&merchant_id=${process.env.CLICK_MERCHANT_ID}&amount=${amount}&transaction_param=${scanFile._id}`,
+      // "c" parametrini olib tashladik!
     };
 
     // Base64 encoding
