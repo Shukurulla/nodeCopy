@@ -167,12 +167,25 @@ router.post("/get-payme-link", async (req, res) => {
         message: "Bunday fayl topilmadi",
       });
     }
-    const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};price=${amount}`
-    );
 
-    // Payme linki yaratish
-    const paymeLink = `https://checkout.paycom.uz/${r}`;
+    // YANGI: To'g'ri format bilan base64 yaratish
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+
+    // Payme uchun parametrlarni to'g'ri formatda yaratish
+    const params = {
+      m: merchantId,
+      ac: {
+        order_id: orderId,
+      },
+      a: amount * 100, // Payme tiyin bilan ishlaydi (1 so'm = 100 tiyin)
+      c: `https://my.click.uz/services/pay?service_id=${process.env.CLICK_SERVICE_ID}&merchant_id=${process.env.CLICK_MERCHANT_ID}&amount=${amount}&transaction_param=${orderId}`,
+    };
+
+    // Base64 encoding
+    const encodedParams = base64.encode(JSON.stringify(params));
+
+    // Payme checkout linki
+    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
       status: "success",
@@ -180,6 +193,7 @@ router.post("/get-payme-link", async (req, res) => {
         link: paymeLink,
         amount: amount,
         orderId: orderId,
+        merchantId: merchantId,
       },
     });
   } catch (error) {
@@ -192,6 +206,68 @@ router.post("/get-payme-link", async (req, res) => {
 });
 
 // Scan file uchun Payme link - BU HAM AUTHORIZATION TALAB QILMAYDI
+// router/payme.routes.js - Tuzatilgan get-payme-link endpoint
+
+// QR kod va to'lov linkini olish - BU ENDPOINT AUTHORIZATION TALAB QILMAYDI
+router.post("/get-payme-link", async (req, res) => {
+  try {
+    const { orderId, amount } = req.body;
+
+    if (!orderId || !amount) {
+      return res.json({
+        status: "error",
+        message: "Iltimos, orderId va amount ni kiriting",
+      });
+    }
+
+    // Faylni tekshirish
+    const uploadedFile = await File.findById(orderId);
+    const scannedFile = await scanFileModel.findById(orderId);
+
+    if (!uploadedFile && !scannedFile) {
+      return res.json({
+        status: "error",
+        message: "Bunday fayl topilmadi",
+      });
+    }
+
+    // YANGI: To'g'ri format bilan base64 yaratish
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+
+    // Payme uchun parametrlarni to'g'ri formatda yaratish
+    const params = {
+      m: merchantId,
+      ac: {
+        order_id: orderId,
+      },
+      a: amount * 100, // Payme tiyin bilan ishlaydi (1 so'm = 100 tiyin)
+    };
+
+    // Base64 encoding
+    const encodedParams = base64.encode(JSON.stringify(params));
+
+    // Payme checkout linki
+    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
+
+    res.json({
+      status: "success",
+      data: {
+        link: paymeLink,
+        amount: amount,
+        orderId: orderId,
+        merchantId: merchantId,
+      },
+    });
+  } catch (error) {
+    console.error("Payme link yaratishda xatolik:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
+// Scan file uchun Payme link - YANGI TUZATILGAN VERSIYA
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
@@ -211,7 +287,23 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
 
-    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${scanFile._id}`;
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+
+    // Payme uchun parametrlarni to'g'ri formatda yaratish
+    const params = {
+      m: merchantId,
+      ac: {
+        order_id: scanFile._id.toString(),
+      },
+      a: amount * 100, // Payme tiyin bilan ishlaydi
+      c: `https://my.click.uz/services/pay?service_id=${process.env.CLICK_SERVICE_ID}&merchant_id=${process.env.CLICK_MERCHANT_ID}&amount=${amount}&transaction_param=${scanFile._id}`,
+    };
+
+    // Base64 encoding
+    const encodedParams = base64.encode(JSON.stringify(params));
+
+    // Payme checkout linki
+    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
       status: "success",
@@ -219,10 +311,34 @@ router.post("/get-scan-payme-link", async (req, res) => {
         link: paymeLink,
         amount: amount,
         orderId: scanFile._id,
+        merchantId: merchantId,
       },
     });
   } catch (error) {
     console.error("Scan file uchun Payme link yaratishda xatolik:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
+// Test endpoint - Payme konfiguratsiyani tekshirish uchun
+router.get("/test-config", async (req, res) => {
+  try {
+    const config = {
+      merchantId: process.env.PAYME_MERCHANT_ID,
+      hasSecretKey: !!process.env.PAYME_SECRET_KEY,
+      hasTestKey: !!process.env.PAYME_TEST_KEY,
+      clickServiceId: process.env.CLICK_SERVICE_ID,
+      clickMerchantId: process.env.CLICK_MERCHANT_ID,
+    };
+
+    res.json({
+      status: "success",
+      config: config,
+    });
+  } catch (error) {
     res.status(500).json({
       status: "error",
       message: error.message,
