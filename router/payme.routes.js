@@ -24,11 +24,10 @@ const PaymeError = {
   TransactionNotPermitted: -31051,
 };
 const message = {
-  "uz": "Buyurtma topilmadi",
-  "ru": "Заказ не найден",
-  "en": "Order not found"
-},
-
+  uz: "Buyurtma topilmadi",
+  ru: "Заказ не найден",
+  en: "Order not found",
+};
 // Payme metodlari
 const PaymeMethod = {
   CheckPerformTransaction: "CheckPerformTransaction",
@@ -318,14 +317,9 @@ router.post("/", paymeCheckToken, async (req, res) => {
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
-     
+
     if (!account || !account.order_id) {
-      return sendPaymeError(
-        res,
-        PaymeError.InvalidAccount,
-        message,
-        id
-      );
+      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
     if (!amount || amount <= 0) {
@@ -342,12 +336,7 @@ async function checkPerformTransaction(req, res, params, id) {
     const scannedFile = await scanFileModel.findById(account.order_id);
 
     if (!uploadedFile && !scannedFile) {
-      return sendPaymeError(
-        res,
-        PaymeError.InvalidAccount,
-        message,
-        id
-      );
+      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
     // Allaqachon to'langanligini tekshirish
@@ -409,12 +398,7 @@ async function createTransaction(req, res, params, id) {
     const serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
-      return sendPaymeError(
-        res,
-        PaymeError.InvalidAccount,
-       message,
-        id
-      );
+      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
     // Yangi tranzaksiya yaratish
