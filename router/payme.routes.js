@@ -23,11 +23,13 @@ const PaymeError = {
   TransactionCancelled: -31007,
   TransactionNotPermitted: -31051,
 };
+
 const message = {
   uz: "Buyurtma topilmadi",
   ru: "Заказ не найден",
   en: "Order not found",
 };
+
 // Payme metodlari
 const PaymeMethod = {
   CheckPerformTransaction: "CheckPerformTransaction",
@@ -37,6 +39,22 @@ const PaymeMethod = {
   CancelTransaction: "CancelTransaction",
   GetStatement: "GetStatement",
 };
+
+// Helper function: Transaction state ni aniqlash
+function getTransactionState(transaction) {
+  if (transaction.status === "paid") {
+    return TransactionState.Paid; // 2
+  } else if (transaction.status === "cancelled") {
+    // Agar perform_time mavjud bo'lsa - to'langan keyin bekor qilingan
+    if (transaction.paymePerformTime) {
+      return TransactionState.PaidCanceled; // -2
+    } else {
+      return TransactionState.PendingCanceled; // -1
+    }
+  } else {
+    return TransactionState.Pending; // 1
+  }
+}
 
 // Payme authentication middleware
 const paymeCheckToken = (req, res, next) => {
@@ -149,7 +167,7 @@ const sendPaymeResponse = (res, result, id = null) => {
   return res.json(response);
 };
 
-// QR kod va to'lov linkini olish - BU ENDPOINT AUTHORIZATION TALAB QILMAYDI
+// QR kod va to'lov linkini olish - TUZATILGAN
 router.post("/get-payme-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -171,12 +189,18 @@ router.post("/get-payme-link", async (req, res) => {
         message: "Bunday fayl topilmadi",
       });
     }
-    const r = base64.encode(
-      `m=686687d05e3cb0be785daea7;ac.order_id=${orderId};a=${amount}`
-    );
 
-    // Payme linki yaratish
-    const paymeLink = `https://checkout.paycom.uz/${r}`;
+    // TO'G'RI FORMAT - JSON va amount tiyin hisobida
+    const params = {
+      m: "686687d05e3cb0be785daea7",
+      ac: {
+        order_id: orderId,
+      },
+      a: amount * 100, // Payme tiyin bilan ishlaydi
+    };
+
+    const encodedParams = base64.encode(JSON.stringify(params));
+    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
       status: "success",
@@ -195,7 +219,7 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link - BU HAM AUTHORIZATION TALAB QILMAYDI
+// Scan file uchun Payme link - TUZATILGAN
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
@@ -215,7 +239,17 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
 
-    const paymeLink = `https://checkout.paycom.uz/${process.env.PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${scanFile._id}`;
+    // TO'G'RI FORMAT
+    const params = {
+      m: "686687d05e3cb0be785daea7",
+      ac: {
+        order_id: scanFile._id.toString(),
+      },
+      a: amount * 100,
+    };
+
+    const encodedParams = base64.encode(JSON.stringify(params));
+    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
       status: "success",
@@ -508,7 +542,7 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 4. CheckTransaction
+// 4. CheckTransaction - TUZATILGAN
 async function checkTransaction(req, res, params, id) {
   try {
     const { id: transactionId } = params;
@@ -533,19 +567,35 @@ async function checkTransaction(req, res, params, id) {
       state: getTransactionState(transaction),
     };
 
-    // Perform time mavjud bo'lsa qo'shish
-    if (transaction.paymePerformTime) {
-      result.perform_time = transaction.paymePerformTime;
-    }
+    // Status bo'yicha qo'shimcha maydonlarni qo'shish
+    if (transaction.status === "paid") {
+      // To'langan tranzaksiya uchun perform_time majburiy
+      if (transaction.paymePerformTime) {
+        result.perform_time = transaction.paymePerformTime;
+      }
+    } else if (transaction.status === "cancelled") {
+      // Bekor qilingan tranzaksiya uchun cancel_time MAJBURIY
+      if (transaction.paymeCancelTime) {
+        result.cancel_time = transaction.paymeCancelTime;
+      } else {
+        // Agar cancel_time yo'q bo'lsa, hozirgi vaqtni o'rnatish
+        const currentTime = Date.now();
+        result.cancel_time = currentTime;
 
-    // Cancel time mavjud bo'lsa qo'shish
-    if (transaction.paymeCancelTime) {
-      result.cancel_time = transaction.paymeCancelTime;
-    }
+        // Bazani ham yangilash
+        transaction.paymeCancelTime = currentTime;
+        await transaction.save();
+      }
 
-    // Bekor qilish sababi mavjud bo'lsa qo'shish
-    if (transaction.status === "cancelled" && transaction.paymeReason) {
-      result.reason = transaction.paymeReason;
+      // Bekor qilish sababi
+      if (transaction.paymeReason) {
+        result.reason = transaction.paymeReason;
+      }
+
+      // Agar avval to'langan bo'lsa, perform_time ham kerak
+      if (transaction.paymePerformTime) {
+        result.perform_time = transaction.paymePerformTime;
+      }
     }
 
     sendPaymeResponse(res, result, id);
@@ -586,7 +636,7 @@ async function cancelTransaction(req, res, params, id) {
         res,
         {
           transaction: transaction._id.toString(),
-          cancel_time: transaction.paymeCancelTime, // Mavjud cancel_time ni qaytarish
+          cancel_time: transaction.paymeCancelTime || cancelTime, // Mavjud yoki yangi cancel_time
           state: transaction.paymePerformTime
             ? TransactionState.PaidCanceled // -2: To'langan keyin bekor qilingan
             : TransactionState.PendingCanceled, // -1: Pending holatda bekor qilingan
@@ -674,12 +724,7 @@ async function getStatement(req, res, params, id) {
         perform_time: t.paymePerformTime || 0,
         cancel_time: t.paymeCancelTime || 0,
         transaction: t._id.toString(),
-        state:
-          t.status === "paid"
-            ? TransactionState.Paid
-            : t.status === "cancelled"
-            ? TransactionState.PaidCanceled
-            : TransactionState.Pending,
+        state: getTransactionState(t),
         reason: t.paymeReason || null,
       })),
     };
