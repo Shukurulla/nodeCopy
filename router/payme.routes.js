@@ -367,7 +367,7 @@ async function checkPerformTransaction(req, res, params, id) {
     sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
-    sendPaymeError(res, PaymeError.CouldNotPerform, "Check perform failed", id);
+    sendPaymeError(res, PaymeError.InvalidAccount, JSON.parse(message), id);
   }
 }
 
@@ -437,7 +437,7 @@ async function createTransaction(req, res, params, id) {
     );
   } catch (error) {
     console.error("CreateTransaction error:", error);
-    sendPaymeError(res, PaymeError.CouldNotPerform, JSON.parse(message), id);
+    sendPaymeError(res, PaymeError.InvalidAccount, JSON.parse(message), id);
   }
 }
 
