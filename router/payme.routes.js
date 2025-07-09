@@ -437,12 +437,7 @@ async function createTransaction(req, res, params, id) {
     );
   } catch (error) {
     console.error("CreateTransaction error:", error);
-    sendPaymeError(
-      res,
-      PaymeError.CouldNotPerform,
-      "Create transaction failed",
-      id
-    );
+    sendPaymeError(res, PaymeError.CouldNotPerform, JSON.parse(message), id);
   }
 }
 
