@@ -23,6 +23,11 @@ const PaymeError = {
   TransactionCancelled: -31007,
   TransactionNotPermitted: -31051,
 };
+const message = {
+  "uz": "Buyurtma topilmadi",
+  "ru": "Заказ не найден",
+  "en": "Order not found"
+},
 
 // Payme metodlari
 const PaymeMethod = {
@@ -313,12 +318,12 @@ router.post("/", paymeCheckToken, async (req, res) => {
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
-
+     
     if (!account || !account.order_id) {
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
-        "Invalid account",
+        message,
         id
       );
     }
@@ -340,7 +345,7 @@ async function checkPerformTransaction(req, res, params, id) {
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
-        "Order not found",
+        message,
         id
       );
     }
@@ -407,7 +412,7 @@ async function createTransaction(req, res, params, id) {
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
-        "Order not found",
+       message,
         id
       );
     }
