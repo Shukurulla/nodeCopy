@@ -1,4 +1,4 @@
-import express from "express";
+// 1. CheckPerformTransaction - TEST ENVIRONMENT UCHUN import express from "express";
 import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
@@ -294,7 +294,7 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// 1. CheckPerformTransaction - FAQAT VALIDATION
+// 1. CheckPerformTransaction - TEST ENVIRONMENT UCHUN TUZATILGAN
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
@@ -333,18 +333,30 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // Allaqachon to'langan yoki pending tranzaksiya tekshiruvi
-    const existingTransaction = await paidModel.findOne({
-      "serviceData._id": account.order_id,
+    // TEST ENVIRONMENT UCHUN: Faqat oxirgi 1 soat ichidagi tranzaksiyalarni tekshirish
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+
+    const recentActiveTransactions = await paidModel.find({
+      $or: [
+        { "serviceData._id": account.order_id },
+        { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
+      ],
       paymentMethod: "payme",
       $or: [{ status: "paid" }, { status: "pending" }],
+      paymeCreateTime: { $gte: oneHourAgo }, // Faqat oxirgi 1 soat
     });
 
-    if (existingTransaction) {
-      if (existingTransaction.status === "paid") {
+    console.log(
+      "Recent active transactions (last 1 hour):",
+      recentActiveTransactions.length
+    );
+
+    if (recentActiveTransactions.length > 0) {
+      const activeTransaction = recentActiveTransactions[0];
+      if (activeTransaction.status === "paid") {
         return sendPaymeError(res, PaymeError.AlreadyDone, "Already paid", id);
       }
-      if (existingTransaction.status === "pending") {
+      if (activeTransaction.status === "pending") {
         return sendPaymeError(
           res,
           PaymeError.Pending,
@@ -446,42 +458,51 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 3. KRITIK: Shu order uchun BOSHQA Payme tranzaksiyalari bormi?
-    // Object ID ham string ham bo'lishi mumkin
-    const otherPaymeTransactions = await paidModel.find({
+    // 3. KRITIK: Shu order uchun RECENT aktiv Payme tranzaksiyalari bormi?
+    // TEST ENVIRONMENT UCHUN: Faqat oxirgi 1 soat ichidagi tranzaksiyalarni tekshirish
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+
+    const recentPaymeTransactions = await paidModel.find({
       $or: [
         { "serviceData._id": account.order_id },
         { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
       ],
       paymentMethod: "payme",
+      paymeCreateTime: { $gte: oneHourAgo }, // Faqat oxirgi 1 soat
     });
 
-    console.log("ALL Payme transactions for order:", account.order_id);
-    console.log("Found transactions:", otherPaymeTransactions.length);
-    otherPaymeTransactions.forEach((tx) => {
+    console.log(
+      "Recent Payme transactions for order (last 1 hour):",
+      account.order_id
+    );
+    console.log("Found recent transactions:", recentPaymeTransactions.length);
+
+    recentPaymeTransactions.forEach((tx) => {
       console.log(
-        `Transaction: ${tx.paymeTransactionId}, Status: ${tx.status}, DB ID: ${tx._id}`
+        `Recent Transaction: ${tx.paymeTransactionId}, Status: ${
+          tx.status
+        }, Time: ${new Date(tx.paymeCreateTime)}`
       );
     });
 
     // Aktiv tranzaksiyalarni filter qilish
-    const activeTransactions = otherPaymeTransactions.filter(
+    const activeTransactions = recentPaymeTransactions.filter(
       (tx) => tx.status === "pending" || tx.status === "paid"
     );
 
-    console.log("Active transactions:", activeTransactions.length);
+    console.log("Recent active transactions:", activeTransactions.length);
 
-    // Agar shu order uchun BOSHQA aktiv Payme tranzaksiya mavjud bo'lsa
+    // Agar shu order uchun RECENT aktiv Payme tranzaksiya mavjud bo'lsa
     if (activeTransactions.length > 0) {
       const activeTransaction = activeTransactions[0];
 
       console.log(
-        `Active transaction found: ${activeTransaction.paymeTransactionId}, Status: ${activeTransaction.status}`
+        `Recent active transaction found: ${activeTransaction.paymeTransactionId}, Status: ${activeTransaction.status}`
       );
 
       if (activeTransaction.status === "paid") {
         console.log(
-          "Order already paid by another Payme transaction - returning -31060"
+          "Order already paid by recent Payme transaction - returning -31060"
         );
         return sendPaymeError(
           res,
@@ -492,7 +513,9 @@ async function createTransaction(req, res, params, id) {
       }
 
       if (activeTransaction.status === "pending") {
-        console.log("Order has pending Payme transaction - returning -31050");
+        console.log(
+          "Order has recent pending Payme transaction - returning -31050"
+        );
         return sendPaymeError(
           res,
           PaymeError.Pending,
