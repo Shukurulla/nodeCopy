@@ -422,7 +422,7 @@ app.get("/files", async (req, res) => {
       return res.status(400).json({ xato: "ApparatId ko'rsatilmagan" });
     }
 
-    const files = await File.find({ apparatId }).sort({ uploadedAt: -1 });
+    const files = await File.find({ apparatId })
     const filesWithLinks = files.map((file) => {
       return {
         ...file.toObject(),
