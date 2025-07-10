@@ -293,10 +293,12 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// 1. CheckPerformTransaction - YouTube dasturchisi mantiqiga asoslangan
+// 1. CheckPerformTransaction - FAQAT VALIDATION
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
+
+    console.log("CheckPerformTransaction:", { account, amount });
 
     // Parametrlar tekshiruvi
     if (!account || !account.order_id) {
@@ -330,7 +332,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // YouTube kodida: Allaqachon to'langan yoki pending tranzaksiya tekshiruvi
+    // Allaqachon to'langan yoki pending tranzaksiya tekshiruvi
     const existingTransaction = await paidModel.findOne({
       "serviceData._id": account.order_id,
       paymentMethod: "payme",
@@ -351,6 +353,7 @@ async function checkPerformTransaction(req, res, params, id) {
       }
     }
 
+    // Agar hamma narsa yaxshi bo'lsa
     return sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
@@ -358,7 +361,7 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CheckTransaction - YouTube dasturchisining mantiqiga asoslangan
+// 2. CheckTransaction - TRANSACTION FIELD TO'G'RI QIYMAT
 async function checkTransaction(req, res, params, id) {
   try {
     const transaction = await paidModel.findOne({
@@ -374,16 +377,19 @@ async function checkTransaction(req, res, params, id) {
       );
     }
 
-    // YouTube kodi: Har doim bir xil format qaytarish
+    console.log("CheckTransaction found:", transaction.paymeTransactionId);
+
+    // MUHIM: transaction maydonida internal DB ID qaytarish (YouTube kodiga asoslangan)
     const result = {
       create_time: transaction.paymeCreateTime,
       perform_time: transaction.paymePerformTime || 0,
       cancel_time: transaction.paymeCancelTime || 0,
-      transaction: transaction.paymeTransactionId,
+      transaction: transaction._id.toString(), // DB ID qaytarish, Payme ID emas
       state: getTransactionState(transaction),
       reason: transaction.paymeReason || null,
     };
 
+    console.log("CheckTransaction result:", result);
     return sendPaymeResponse(res, result, id);
   } catch (error) {
     console.error("CheckTransaction error:", error);
@@ -396,63 +402,36 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction - YouTube dasturchisining mantiqiga asoslangan
+// 3. CreateTransaction - TUZATILGAN
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
 
-    // Tranzaksiya mavjudligini tekshirish
+    console.log("CreateTransaction called:", {
+      transactionId,
+      account: account.order_id,
+    });
+
+    // 1. Tranzaksiya allaqachon mavjudligini tekshirish
     let transaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
 
     if (transaction) {
-      if (transaction.status !== PaymeTransactionState.Pending) {
-        return sendPaymeError(
-          res,
-          PaymeError.CantDoOperation,
-          "Can't create",
-          id
-        );
-      }
-
-      // YouTube kodi: Vaqt tekshiruvi (12 daqiqa)
-      const currentTime = Date.now();
-      const expirationTime =
-        (currentTime - transaction.paymeCreateTime) / 60000 < 12;
-
-      if (!expirationTime) {
-        await paidModel.findOneAndUpdate(
-          { paymeTransactionId: transactionId },
-          {
-            status: "cancelled",
-            paymeCancelTime: currentTime,
-            paymeReason: 4,
-          }
-        );
-        return sendPaymeError(
-          res,
-          PaymeError.CantDoOperation,
-          "Transaction expired",
-          id
-        );
-      }
-
+      console.log("Transaction exists, returning existing data");
+      // Bir xil transaction ID - bir xil javob qaytarish
       return sendPaymeResponse(
         res,
         {
+          transaction: transaction._id.toString(), // DB ID qaytarish
+          state: getTransactionState(transaction),
           create_time: transaction.paymeCreateTime,
-          transaction: transaction.paymeTransactionId,
-          state: PaymeTransactionState.Pending,
         },
         id
       );
     }
 
-    // Yangi tranzaksiya yaratishdan oldin tekshiruvlar
-    await checkPerformTransaction(req, res, params, id);
-
-    // Order ma'lumotlarini olish
+    // 2. Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
@@ -461,19 +440,27 @@ async function createTransaction(req, res, params, id) {
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
-        "Service not found",
+        "Order not found",
         id
       );
     }
 
-    // YouTube kodi: Bir xil order uchun boshqa tranzaksiya tekshiruvi
+    // 3. KRITIK: Shu order uchun boshqa aktiv tranzaksiya bormi?
     const existingOrderTransaction = await paidModel.findOne({
       "serviceData._id": account.order_id,
       paymentMethod: "payme",
+      paymeTransactionId: { $ne: transactionId }, // Bu tranzaksiya emas
+      status: { $in: ["pending", "paid"] },
     });
+
+    console.log(
+      "Existing order transaction:",
+      existingOrderTransaction ? "YES" : "NO"
+    );
 
     if (existingOrderTransaction) {
       if (existingOrderTransaction.status === "paid") {
+        console.log("Order already paid - returning error -31060");
         return sendPaymeError(
           res,
           PaymeError.AlreadyDone,
@@ -482,11 +469,18 @@ async function createTransaction(req, res, params, id) {
         );
       }
       if (existingOrderTransaction.status === "pending") {
-        return sendPaymeError(res, PaymeError.Pending, "Order pending", id);
+        console.log("Order pending - returning error -31050");
+        return sendPaymeError(
+          res,
+          PaymeError.Pending,
+          "Another transaction is processing",
+          id
+        );
       }
     }
 
-    // Yangi tranzaksiya yaratish
+    // 4. Yangi tranzaksiya yaratish
+    console.log("Creating new transaction");
     const newTransaction = await paidModel.create({
       paymeTransactionId: transactionId,
       serviceData: serviceData,
@@ -496,10 +490,12 @@ async function createTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
+    console.log("New transaction created:", newTransaction._id);
+
     return sendPaymeResponse(
       res,
       {
-        transaction: newTransaction.paymeTransactionId,
+        transaction: newTransaction._id.toString(), // DB ID qaytarish
         state: PaymeTransactionState.Pending,
         create_time: newTransaction.paymeCreateTime,
       },
@@ -542,7 +538,7 @@ async function performTransaction(req, res, params, id) {
         res,
         {
           perform_time: transaction.paymePerformTime,
-          transaction: transaction.paymeTransactionId,
+          transaction: transaction._id.toString(), // DB ID qaytarish
           state: PaymeTransactionState.Paid,
         },
         id
@@ -599,7 +595,7 @@ async function performTransaction(req, res, params, id) {
       res,
       {
         perform_time: currentTime,
-        transaction: transaction.paymeTransactionId,
+        transaction: transaction._id.toString(), // DB ID qaytarish
         state: PaymeTransactionState.Paid,
       },
       id
@@ -657,7 +653,7 @@ async function cancelTransaction(req, res, params, id) {
       res,
       {
         cancel_time: transaction.paymeCancelTime || currentTime,
-        transaction: transaction.paymeTransactionId,
+        transaction: transaction._id.toString(), // DB ID qaytarish
         state: getTransactionState({ ...transaction, status: "cancelled" }),
       },
       id
@@ -691,7 +687,7 @@ async function getStatement(req, res, params, id) {
       create_time: transaction.paymeCreateTime,
       perform_time: transaction.paymePerformTime || 0,
       cancel_time: transaction.paymeCancelTime || 0,
-      transaction: transaction.paymeTransactionId,
+      transaction: transaction._id.toString(), // DB ID qaytarish
       state: getTransactionState(transaction),
       reason: transaction.paymeReason || null,
     }));
