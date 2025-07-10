@@ -22,6 +22,10 @@ const PaymeError = {
   TransactionAlreadyExists: -31060,
   TransactionCancelled: -31007,
   TransactionNotPermitted: -31051,
+  // Yangi xatoliklar qo'shildi
+  TransactionNotAllowedForOrder: -31099, // Buyurtma uchun tranzaksiya ruxsat etilmagan
+  OrderProcessing: -31080, // Buyurtma qayta ishlanmoqda
+  OrderBlocked: -31070, // Buyurtma bloklangan
 };
 
 const message = {
@@ -40,12 +44,42 @@ const PaymeMethod = {
   GetStatement: "GetStatement",
 };
 
+// Order state enum - test talablariga mos
+const OrderState = {
+  WaitingPayment: 0, // Ожидает оплаты
+  Processing: 1, // Обрабатывается
+  Blocked: 2, // Заблокирован
+  NotExists: 3, // Не существует
+};
+
+// Helper function: Order holatini aniqlash
+function getOrderState(serviceData, existingTransactions) {
+  if (!serviceData) {
+    return OrderState.NotExists;
+  }
+
+  // Allaqachon to'langan tranzaksiya bor-yo'qligini tekshirish
+  const paidTransaction = existingTransactions.find((t) => t.status === "paid");
+  if (paidTransaction) {
+    return OrderState.Blocked; // To'langan = bloklangan
+  }
+
+  // Boshqa pending tranzaksiya bor-yo'qligini tekshirish
+  const pendingTransaction = existingTransactions.find(
+    (t) => t.status === "pending"
+  );
+  if (pendingTransaction) {
+    return OrderState.Processing; // Boshqa tranzaksiya qayta ishlanmoqda
+  }
+
+  return OrderState.WaitingPayment; // To'lov kutilmoqda
+}
+
 // Helper function: Transaction state ni aniqlash
 function getTransactionState(transaction) {
   if (transaction.status === "paid") {
     return TransactionState.Paid; // 2
   } else if (transaction.status === "cancelled") {
-    // Agar perform_time mavjud bo'lsa - to'langan keyin bekor qilingan
     if (transaction.paymePerformTime) {
       return TransactionState.PaidCanceled; // -2
     } else {
@@ -62,11 +96,7 @@ const paymeCheckToken = (req, res, next) => {
     const { id } = req.body;
     const authHeader = req.headers.authorization;
 
-    console.log("Auth header:", authHeader);
-    console.log("Request ID:", id);
-
     if (!authHeader || !authHeader.startsWith("Basic ")) {
-      console.log("No Basic auth header");
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
@@ -77,7 +107,6 @@ const paymeCheckToken = (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
     if (!token) {
-      console.log("No token found");
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
@@ -88,30 +117,17 @@ const paymeCheckToken = (req, res, next) => {
 
     try {
       const decoded = base64.decode(token);
-      console.log("Decoded token:", decoded);
 
-      // Test va production keylarni tekshirish
-      const testKey = process.env.PAYME_TEST_KEY?.replace(/"/g, ""); // Qo'shtirnoqni olib tashlash
+      const testKey = process.env.PAYME_TEST_KEY?.replace(/"/g, "");
       const prodKey = process.env.PAYME_SECRET_KEY?.replace(/"/g, "");
 
-      console.log("Test key:", testKey);
-      console.log("Prod key:", prodKey);
-
-      // Paycom:KEY formatida keladi
       const expectedTestFormat = `Paycom:${testKey}`;
       const expectedProdFormat = `Paycom:${prodKey}`;
 
-      console.log("Expected test format:", expectedTestFormat);
-      console.log("Expected prod format:", expectedProdFormat);
-
-      // Test yoki production keyni tekshirish
       const isValidKey =
         decoded === expectedTestFormat || decoded === expectedProdFormat;
 
       if (!isValidKey) {
-        console.log("Invalid key - decoded:", decoded);
-        console.log("Expected test:", expectedTestFormat);
-        console.log("Expected prod:", expectedProdFormat);
         return sendPaymeError(
           res,
           PaymeError.InvalidAuthorization,
@@ -119,10 +135,7 @@ const paymeCheckToken = (req, res, next) => {
           id
         );
       }
-
-      console.log("Authentication successful");
     } catch (decodeError) {
-      console.log("Decode error:", decodeError);
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
@@ -133,7 +146,6 @@ const paymeCheckToken = (req, res, next) => {
 
     next();
   } catch (error) {
-    console.log("Auth middleware error:", error);
     const { id } = req.body;
     return sendPaymeError(
       res,
@@ -154,6 +166,7 @@ const sendPaymeError = (res, code, message, id = null) => {
       message: message,
     },
   };
+  console.log("Sending Payme Error:", response);
   return res.json(response);
 };
 
@@ -164,10 +177,11 @@ const sendPaymeResponse = (res, result, id = null) => {
     id: id,
     result: result,
   };
+  console.log("Sending Payme Response:", response);
   return res.json(response);
 };
 
-// QR kod va to'lov linkini olish - TUZATILGAN
+// QR kod va to'lov linkini olish
 router.post("/get-payme-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -179,7 +193,6 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    // Faylni tekshirish
     const uploadedFile = await File.findById(orderId);
     const scannedFile = await scanFileModel.findById(orderId);
 
@@ -190,13 +203,12 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    // TO'G'RI FORMAT - JSON va amount tiyin hisobida
     const params = {
       m: "686687d05e3cb0be785daea7",
       ac: {
         order_id: orderId,
       },
-      a: amount * 100, // Payme tiyin bilan ishlaydi
+      a: amount * 100,
     };
 
     const encodedParams = base64.encode(JSON.stringify(params));
@@ -219,7 +231,7 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link - TUZATILGAN
+// Scan file uchun Payme link
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
@@ -239,7 +251,6 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
 
-    // TO'G'RI FORMAT
     const params = {
       m: "686687d05e3cb0be785daea7",
       ac: {
@@ -313,7 +324,6 @@ router.post("/", paymeCheckToken, async (req, res) => {
 
     console.log("Payme webhook received:", { method, params, id });
 
-    // Metodga qarab yo'naltirish
     switch (method) {
       case PaymeMethod.CheckPerformTransaction:
         await checkPerformTransaction(req, res, params, id);
@@ -352,11 +362,13 @@ async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
 
+    console.log("CheckPerformTransaction called with:", { account, amount });
+
     if (!account || !account.order_id) {
       return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
-    if (!amount || amount <= 0 || amount.length > 7) {
+    if (!amount || amount <= 0) {
       return sendPaymeError(
         res,
         PaymeError.InvalidAmount,
@@ -368,42 +380,42 @@ async function checkPerformTransaction(req, res, params, id) {
     // Faylni tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
+    const serviceData = uploadedFile || scannedFile;
 
-    if (!uploadedFile && !scannedFile) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
-    }
-
-    // Allaqachon to'langanligini tekshirish
-    const existingPayment = await paidModel.findOne({
+    // Shu order uchun barcha tranzaksiyalarni olish
+    const existingTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
-      status: "paid",
     });
 
-    if (existingPayment) {
-      return sendPaymeError(
-        res,
-        PaymeError.TransactionNotAllowed,
-        "Order already paid",
-        id
-      );
+    const orderState = getOrderState(serviceData, existingTransactions);
+
+    console.log("Order state:", orderState, "for order:", account.order_id);
+
+    // Order holatiga qarab javob berish
+    switch (orderState) {
+      case OrderState.WaitingPayment:
+        return sendPaymeResponse(res, { allow: true }, id);
+
+      case OrderState.Processing:
+        return sendPaymeError(
+          res,
+          PaymeError.OrderProcessing,
+          "Another transaction is processing for this order",
+          id
+        );
+
+      case OrderState.Blocked:
+        return sendPaymeError(
+          res,
+          PaymeError.OrderBlocked,
+          "Order already paid or blocked",
+          id
+        );
+
+      case OrderState.NotExists:
+      default:
+        return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
-
-    // YANGI: Pending tranzaksiya mavjudligini tekshirish
-    const existingPendingTransaction = await paidModel.findOne({
-      "serviceData._id": account.order_id,
-      status: "pending",
-    });
-
-    if (existingPendingTransaction) {
-      return sendPaymeError(
-        res,
-        PaymeError.TransactionNotAllowed,
-        "Another transaction is pending for this order",
-        id
-      );
-    }
-
-    sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
     sendPaymeError(res, PaymeError.InvalidAccount, message, id);
@@ -415,12 +427,15 @@ async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
 
+    console.log("CreateTransaction called with:", { transactionId, account });
+
     // 1. Aynan shu tranzaksiya mavjudligini tekshirish
     let transaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
 
     if (transaction) {
+      console.log("Transaction already exists:", transaction._id);
       if (transaction.status === "pending") {
         return sendPaymeResponse(
           res,
@@ -446,57 +461,40 @@ async function createTransaction(req, res, params, id) {
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
 
-    if (!serviceData) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
-    }
-
-    // 3. KRITIK: Shu order_id uchun boshqa aktiv tranzaksiyalar tekshirish
-    const existingActiveTransactions = await paidModel.find({
+    // 3. Shu order uchun barcha tranzaksiyalarni olish
+    const existingTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
-      paymeTransactionId: { $exists: true },
-      $or: [{ status: "pending" }, { status: "paid" }],
     });
 
-    console.log(
-      "Existing transactions for order:",
-      account.order_id,
-      existingActiveTransactions
-    );
+    const orderState = getOrderState(serviceData, existingTransactions);
 
-    // Agar boshqa pending tranzaksiya mavjud bo'lsa
-    const otherPendingTransaction = existingActiveTransactions.find(
-      (t) => t.paymeTransactionId !== transactionId && t.status === "pending"
-    );
+    console.log("Order state for CreateTransaction:", orderState);
 
-    if (otherPendingTransaction) {
-      console.log(
-        "Found other pending transaction:",
-        otherPendingTransaction.paymeTransactionId
-      );
-      return sendPaymeError(
-        res,
-        PaymeError.TransactionNotAllowed,
-        "Another transaction is pending for this order",
-        id
-      );
-    }
+    // Order holatiga qarab javob berish
+    switch (orderState) {
+      case OrderState.WaitingPayment:
+        // Yangi tranzaksiya yaratish mumkin
+        break;
 
-    // Agar allaqachon to'langan bo'lsa
-    const paidTransaction = existingActiveTransactions.find(
-      (t) => t.status === "paid"
-    );
+      case OrderState.Processing:
+        return sendPaymeError(
+          res,
+          PaymeError.OrderProcessing,
+          "Another transaction is processing for this order",
+          id
+        );
 
-    if (paidTransaction) {
-      console.log(
-        "Found paid transaction:",
-        paidTransaction.paymeTransactionId
-      );
-      return sendPaymeError(
-        res,
-        PaymeError.TransactionNotAllowed,
-        "Order already paid",
-        id
-      );
+      case OrderState.Blocked:
+        return sendPaymeError(
+          res,
+          PaymeError.OrderBlocked,
+          "Order already paid or blocked",
+          id
+        );
+
+      case OrderState.NotExists:
+      default:
+        return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
     }
 
     // 4. Yangi tranzaksiya yaratish
@@ -608,7 +606,7 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 4. CheckTransaction - TUZATILGAN
+// 4. CheckTransaction - TUZATILGAN - DOIMO BIR XIL RESULT QAYTARISH
 async function checkTransaction(req, res, params, id) {
   try {
     const { id: transactionId } = params;
@@ -626,42 +624,26 @@ async function checkTransaction(req, res, params, id) {
       );
     }
 
-    // Asosiy result obyektini yaratish
+    // MUHIM: Har doim bir xil tartibda maydonlarni qaytarish
     const result = {
       transaction: transaction._id.toString(),
       create_time: transaction.paymeCreateTime,
       state: getTransactionState(transaction),
     };
 
-    // Status bo'yicha qo'shimcha maydonlarni qo'shish
-    if (transaction.status === "paid") {
-      // To'langan tranzaksiya uchun perform_time majburiy
-      if (transaction.paymePerformTime) {
-        result.perform_time = transaction.paymePerformTime;
-      }
-    } else if (transaction.status === "cancelled") {
-      // Bekor qilingan tranzaksiya uchun cancel_time MAJBURIY
-      if (transaction.paymeCancelTime) {
-        result.cancel_time = transaction.paymeCancelTime;
-      } else {
-        // Agar cancel_time yo'q bo'lsa, hozirgi vaqtni o'rnatish
-        const currentTime = Date.now();
-        result.cancel_time = currentTime;
+    // Perform_time ni faqat mavjud bo'lsa qo'shish
+    if (transaction.paymePerformTime) {
+      result.perform_time = transaction.paymePerformTime;
+    }
 
-        // Bazani ham yangilash
-        transaction.paymeCancelTime = currentTime;
-        await transaction.save();
-      }
+    // Cancel_time ni faqat mavjud bo'lsa qo'shish
+    if (transaction.paymeCancelTime) {
+      result.cancel_time = transaction.paymeCancelTime;
+    }
 
-      // Bekor qilish sababi
-      if (transaction.paymeReason) {
-        result.reason = transaction.paymeReason;
-      }
-
-      // Agar avval to'langan bo'lsa, perform_time ham kerak
-      if (transaction.paymePerformTime) {
-        result.perform_time = transaction.paymePerformTime;
-      }
+    // Reason ni faqat mavjud bo'lsa qo'shish
+    if (transaction.paymeReason) {
+      result.reason = transaction.paymeReason;
     }
 
     sendPaymeResponse(res, result, id);
@@ -702,10 +684,10 @@ async function cancelTransaction(req, res, params, id) {
         res,
         {
           transaction: transaction._id.toString(),
-          cancel_time: transaction.paymeCancelTime || cancelTime, // Mavjud yoki yangi cancel_time
+          cancel_time: transaction.paymeCancelTime || cancelTime,
           state: transaction.paymePerformTime
-            ? TransactionState.PaidCanceled // -2: To'langan keyin bekor qilingan
-            : TransactionState.PendingCanceled, // -1: Pending holatda bekor qilingan
+            ? TransactionState.PaidCanceled
+            : TransactionState.PendingCanceled,
         },
         id
       );
@@ -731,7 +713,7 @@ async function cancelTransaction(req, res, params, id) {
         {
           transaction: transaction._id.toString(),
           cancel_time: cancelTime,
-          state: TransactionState.PaidCanceled, // -2
+          state: TransactionState.PaidCanceled,
         },
         id
       );
@@ -747,7 +729,7 @@ async function cancelTransaction(req, res, params, id) {
         {
           transaction: transaction._id.toString(),
           cancel_time: cancelTime,
-          state: TransactionState.PendingCanceled, // -1
+          state: TransactionState.PendingCanceled,
         },
         id
       );
