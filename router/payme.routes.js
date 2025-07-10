@@ -1,4 +1,5 @@
-// 1. CheckPerformTransaction - TEST ENVIRONMENT UCHUN import express from "express";
+// 1. CheckPerformTransaction - TEST ENVIRONMENT UCHUN
+import express from "express";
 import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
@@ -7,7 +8,7 @@ import Statistika from "../model/statistika.model.js";
 import VendingApparat from "../model/vendingApparat.model.js";
 import { TransactionState } from "../enum/transaction.enum.js";
 import base64 from "base-64";
-import express from 'express'
+
 const router = express.Router();
 
 // YouTube dasturchisining kodiga asoslangan PAYME ERROR kodlari
