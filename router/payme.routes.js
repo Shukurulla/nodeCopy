@@ -7,18 +7,24 @@ import Statistika from "../model/statistika.model.js";
 import VendingApparat from "../model/vendingApparat.model.js";
 import { TransactionState } from "../enum/transaction.enum.js";
 import base64 from "base-64";
-import express from "express";
+
 const router = express.Router();
 
 // YouTube dasturchisining kodiga asoslangan PAYME ERROR kodlari
 const PaymeError = {
-  InvalidAmount: -31001,
-  InvalidAccount: -31050,
-  CantDoOperation: -31008,
-  TransactionNotFound: -31003,
-  InvalidAuthorization: -32504,
-  AlreadyDone: -31060,
-  Pending: -31050,
+  InvalidAmount: -31001, // Noto'g'ri summa
+  InvalidAccount: -31050, // Noto'g'ri account
+  CantDoOperation: -31008, // Operatsiya bajarib bo'lmaydi
+  TransactionNotFound: -31003, // Tranzaksiya topilmadi
+  InvalidAuthorization: -32504, // Avtorizatsiya xatoligi
+  AlreadyDone: -31060, // Allaqachon to'langan
+  Pending: -31050, // Kutish holatida
+};
+
+// Bizning loyiha uchun summa chegaralari
+const PAYMENT_LIMITS = {
+  MIN_AMOUNT: 600, // Minimum 600 som (1 qog'oz)
+  MAX_AMOUNT: 5000000, // Maksimum 5 million som
 };
 
 // Payme metodlari
@@ -134,8 +140,9 @@ router.post("/get-payme-link", async (req, res) => {
     }
 
     const uploadedFile = await File.findById(orderId);
+    const scannedFile = await scanFileModel.findById(orderId);
 
-    if (!uploadedFile) {
+    if (!uploadedFile && !scannedFile) {
       return res.json({
         status: "error",
         message: "Bunday fayl topilmadi",
@@ -147,13 +154,11 @@ router.post("/get-payme-link", async (req, res) => {
       ac: {
         order_id: orderId,
       },
-      a: amount,
+      a: amount * 100,
     };
 
-    const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${uploadedFile._id};price=${amount}`
-    );
-    const paymeLink = `https://checkout.paycom.uz/${r}`;
+    const encodedParams = base64.encode(JSON.stringify(params));
+    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
       status: "success",
@@ -196,12 +201,10 @@ router.post("/get-scan-payme-link", async (req, res) => {
       ac: {
         order_id: scanFile._id.toString(),
       },
-      a: amount,
+      a: amount * 100,
     };
 
-    const encodedParams = base64.encode(
-      `m:686687d05e3cb0be785daea7;ac:${scanFile._id.toString()};a:${amount}`
-    );
+    const encodedParams = base64.encode(JSON.stringify(params));
     const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
@@ -297,15 +300,16 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// 1. CheckPerformTransaction - TEST ENVIRONMENT UCHUN TUZATILGAN
+// 1. CheckPerformTransaction - TO'LIQ VALIDATSIYA
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
 
     console.log("CheckPerformTransaction:", { account, amount });
 
-    // Parametrlar tekshiruvi
+    // 1. Account parametrini tekshirish
     if (!account || !account.order_id) {
+      console.log("Invalid account - no order_id");
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
@@ -314,7 +318,20 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    if (!amount || amount <= 0) {
+    // 2. Account format tekshirish (ObjectId formatda bo'lishi kerak)
+    if (!isValidObjectId(account.order_id)) {
+      console.log("Invalid account - not valid ObjectId format");
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAccount,
+        "Invalid account format",
+        id
+      );
+    }
+
+    // 3. Amount parametrini tekshirish
+    if (!amount || typeof amount !== "number") {
+      console.log("Invalid amount - not a number");
       return sendPaymeError(
         res,
         PaymeError.InvalidAmount,
@@ -323,11 +340,31 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // Order mavjudligini tekshirish
+    // 4. Amount tiyin formatidan som formatiga o'tkazish (Payme tiyin ishlatadi)
+    const amountInSom = amount / 100;
+
+    // 5. Summa chegaralarini tekshirish
+    if (
+      amountInSom < PAYMENT_LIMITS.MIN_AMOUNT ||
+      amountInSom > PAYMENT_LIMITS.MAX_AMOUNT
+    ) {
+      console.log(
+        `Amount out of range: ${amountInSom} som. Range: ${PAYMENT_LIMITS.MIN_AMOUNT}-${PAYMENT_LIMITS.MAX_AMOUNT}`
+      );
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAmount,
+        "Amount out of range",
+        id
+      );
+    }
+
+    // 6. Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
 
     if (!uploadedFile && !scannedFile) {
+      console.log("Order not found in database");
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
@@ -336,7 +373,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // TEST ENVIRONMENT UCHUN: Faqat oxirgi 1 soat ichidagi tranzaksiyalarni tekshirish
+    // 7. TEST ENVIRONMENT UCHUN: Faqat oxirgi 1 soat ichidagi tranzaksiyalarni tekshirish
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
 
     const recentActiveTransactions = await paidModel.find({
@@ -357,9 +394,11 @@ async function checkPerformTransaction(req, res, params, id) {
     if (recentActiveTransactions.length > 0) {
       const activeTransaction = recentActiveTransactions[0];
       if (activeTransaction.status === "paid") {
+        console.log("Order already paid");
         return sendPaymeError(res, PaymeError.AlreadyDone, "Already paid", id);
       }
       if (activeTransaction.status === "pending") {
+        console.log("Order pending");
         return sendPaymeError(
           res,
           PaymeError.Pending,
@@ -369,7 +408,8 @@ async function checkPerformTransaction(req, res, params, id) {
       }
     }
 
-    // Agar hamma narsa yaxshi bo'lsa
+    // 8. Agar hamma narsa yaxshi bo'lsa
+    console.log("CheckPerformTransaction - All validations passed");
     return sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
@@ -754,6 +794,12 @@ async function getStatement(req, res, params, id) {
 }
 
 // Helper functions
+function isValidObjectId(str) {
+  // MongoDB ObjectId formatini tekshirish
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-fA-F]{24}$/.test(str);
+}
+
 function getTransactionState(transaction) {
   if (transaction.status === "paid") {
     return PaymeTransactionState.Paid;
