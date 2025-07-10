@@ -133,10 +133,10 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    const uploadedFile = await File.findById(orderId);
-    const scannedFile = await scanFileModel.findById(orderId);
+    const uploadedFile =
+      (await File.findById(orderId)) || (await scanFileModel.findById(orderId));
 
-    if (!uploadedFile && !scannedFile) {
+    if (!uploadedFile) {
       return res.json({
         status: "error",
         message: "Bunday fayl topilmadi",
@@ -152,7 +152,7 @@ router.post("/get-payme-link", async (req, res) => {
     };
 
     const encodedParams = base64.encode(
-      `m:686687d05e3cb0be785daea7;ac:${scanFile._id.toString()};a:${amount}`
+      `m:686687d05e3cb0be785daea7;ac:${uploadedFile._id.toString()};a:${amount}`
     );
     const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
