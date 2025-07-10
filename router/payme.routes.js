@@ -151,7 +151,9 @@ router.post("/get-payme-link", async (req, res) => {
       a: amount,
     };
 
-    const encodedParams = base64.encode(params);
+    const encodedParams = base64.encode(
+      `m:686687d05e3cb0be785daea7;ac:${scanFile._id.toString()};a:${amount}`
+    );
     const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
@@ -198,7 +200,9 @@ router.post("/get-scan-payme-link", async (req, res) => {
       a: amount,
     };
 
-    const encodedParams = base64.encode(params);
+    const encodedParams = base64.encode(
+      `m:686687d05e3cb0be785daea7;ac:${scanFile._id.toString()};a:${amount}`
+    );
     const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
