@@ -1,4 +1,5 @@
 import express from "express";
+import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
@@ -446,21 +447,37 @@ async function createTransaction(req, res, params, id) {
     }
 
     // 3. KRITIK: Shu order uchun BOSHQA Payme tranzaksiyalari bormi?
+    // Object ID ham string ham bo'lishi mumkin
     const otherPaymeTransactions = await paidModel.find({
-      "serviceData._id": account.order_id,
+      $or: [
+        { "serviceData._id": account.order_id },
+        { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
+      ],
       paymentMethod: "payme",
-      // Har qanday Payme tranzaksiya (to'langan yoki pending)
-      status: { $in: ["pending", "paid"] },
     });
 
-    console.log(
-      "Other Payme transactions for this order:",
-      otherPaymeTransactions.length
+    console.log("ALL Payme transactions for order:", account.order_id);
+    console.log("Found transactions:", otherPaymeTransactions.length);
+    otherPaymeTransactions.forEach((tx) => {
+      console.log(
+        `Transaction: ${tx.paymeTransactionId}, Status: ${tx.status}, DB ID: ${tx._id}`
+      );
+    });
+
+    // Aktiv tranzaksiyalarni filter qilish
+    const activeTransactions = otherPaymeTransactions.filter(
+      (tx) => tx.status === "pending" || tx.status === "paid"
     );
 
-    // Agar shu order uchun BOSHQA Payme tranzaksiya mavjud bo'lsa
-    if (otherPaymeTransactions.length > 0) {
-      const activeTransaction = otherPaymeTransactions[0];
+    console.log("Active transactions:", activeTransactions.length);
+
+    // Agar shu order uchun BOSHQA aktiv Payme tranzaksiya mavjud bo'lsa
+    if (activeTransactions.length > 0) {
+      const activeTransaction = activeTransactions[0];
+
+      console.log(
+        `Active transaction found: ${activeTransaction.paymeTransactionId}, Status: ${activeTransaction.status}`
+      );
 
       if (activeTransaction.status === "paid") {
         console.log(
