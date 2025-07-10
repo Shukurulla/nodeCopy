@@ -9,88 +9,36 @@ import base64 from "base-64";
 
 const router = express.Router();
 
-// Payme xatoliklari
+// YouTube dasturchisining kodiga asoslangan PAYME ERROR kodlari
 const PaymeError = {
-  Success: 0,
   InvalidAmount: -31001,
   InvalidAccount: -31050,
-  CouldNotPerform: -31008,
+  CantDoOperation: -31008,
   TransactionNotFound: -31003,
   InvalidAuthorization: -32504,
-  AccessDenied: -32001,
-  TransactionNotAllowed: -31008,
-  TransactionAlreadyExists: -31060,
-  TransactionCancelled: -31007,
-  TransactionNotPermitted: -31051,
-  // Yangi xatoliklar qo'shildi
-  TransactionNotAllowedForOrder: -31099, // Buyurtma uchun tranzaksiya ruxsat etilmagan
-  OrderProcessing: -31080, // Buyurtma qayta ishlanmoqda
-  OrderBlocked: -31070, // Buyurtma bloklangan
-};
-
-const message = {
-  uz: "Buyurtma topilmadi",
-  ru: "Заказ не найден",
-  en: "Order not found",
+  AlreadyDone: -31060,
+  Pending: -31050,
 };
 
 // Payme metodlari
 const PaymeMethod = {
   CheckPerformTransaction: "CheckPerformTransaction",
+  CheckTransaction: "CheckTransaction",
   CreateTransaction: "CreateTransaction",
   PerformTransaction: "PerformTransaction",
-  CheckTransaction: "CheckTransaction",
   CancelTransaction: "CancelTransaction",
   GetStatement: "GetStatement",
 };
 
-// Order state enum - test talablariga mos
-const OrderState = {
-  WaitingPayment: 0, // Ожидает оплаты
-  Processing: 1, // Обрабатывается
-  Blocked: 2, // Заблокирован
-  NotExists: 3, // Не существует
+// Transaction state (YouTube kod asosida)
+const PaymeTransactionState = {
+  Paid: 2,
+  Pending: 1,
+  PendingCanceled: -1,
+  PaidCanceled: -2,
 };
 
-// Helper function: Order holatini aniqlash
-function getOrderState(serviceData, existingTransactions) {
-  if (!serviceData) {
-    return OrderState.NotExists;
-  }
-
-  // Allaqachon to'langan tranzaksiya bor-yo'qligini tekshirish
-  const paidTransaction = existingTransactions.find((t) => t.status === "paid");
-  if (paidTransaction) {
-    return OrderState.Blocked; // To'langan = bloklangan
-  }
-
-  // Boshqa pending tranzaksiya bor-yo'qligini tekshirish
-  const pendingTransaction = existingTransactions.find(
-    (t) => t.status === "pending"
-  );
-  if (pendingTransaction) {
-    return OrderState.Processing; // Boshqa tranzaksiya qayta ishlanmoqda
-  }
-
-  return OrderState.WaitingPayment; // To'lov kutilmoqda
-}
-
-// Helper function: Transaction state ni aniqlash
-function getTransactionState(transaction) {
-  if (transaction.status === "paid") {
-    return TransactionState.Paid; // 2
-  } else if (transaction.status === "cancelled") {
-    if (transaction.paymePerformTime) {
-      return TransactionState.PaidCanceled; // -2
-    } else {
-      return TransactionState.PendingCanceled; // -1
-    }
-  } else {
-    return TransactionState.Pending; // 1
-  }
-}
-
-// Payme authentication middleware
+// YouTube dasturchisining authentication mantiqiga asoslangan
 const paymeCheckToken = (req, res, next) => {
   try {
     const { id } = req.body;
@@ -100,7 +48,7 @@ const paymeCheckToken = (req, res, next) => {
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
-        "Unauthorized - No Basic Auth",
+        "Unauthorized",
         id
       );
     }
@@ -110,36 +58,32 @@ const paymeCheckToken = (req, res, next) => {
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
-        "Unauthorized - No Token",
+        "No token",
         id
       );
     }
 
     try {
       const decoded = base64.decode(token);
-
       const testKey = process.env.PAYME_TEST_KEY?.replace(/"/g, "");
       const prodKey = process.env.PAYME_SECRET_KEY?.replace(/"/g, "");
 
       const expectedTestFormat = `Paycom:${testKey}`;
       const expectedProdFormat = `Paycom:${prodKey}`;
 
-      const isValidKey =
-        decoded === expectedTestFormat || decoded === expectedProdFormat;
-
-      if (!isValidKey) {
+      if (decoded !== expectedTestFormat && decoded !== expectedProdFormat) {
         return sendPaymeError(
           res,
           PaymeError.InvalidAuthorization,
-          "Unauthorized - Invalid Key",
+          "Invalid key",
           id
         );
       }
-    } catch (decodeError) {
+    } catch {
       return sendPaymeError(
         res,
         PaymeError.InvalidAuthorization,
-        "Unauthorized - Decode Error",
+        "Decode error",
         id
       );
     }
@@ -150,38 +94,33 @@ const paymeCheckToken = (req, res, next) => {
     return sendPaymeError(
       res,
       PaymeError.InvalidAuthorization,
-      "Unauthorized - Exception",
+      "Auth error",
       id
     );
   }
 };
 
-// Payme xatolik javobini yuborish
+// YouTube kodiga asoslangan error va response funktsilar
 const sendPaymeError = (res, code, message, id = null) => {
-  const response = {
+  return res.json({
     jsonrpc: "2.0",
     id: id,
     error: {
       code: code,
       message: message,
     },
-  };
-  console.log("Sending Payme Error:", response);
-  return res.json(response);
+  });
 };
 
-// Payme muvaffaqiyatli javobini yuborish
 const sendPaymeResponse = (res, result, id = null) => {
-  const response = {
+  return res.json({
     jsonrpc: "2.0",
     id: id,
     result: result,
-  };
-  console.log("Sending Payme Response:", response);
-  return res.json(response);
+  });
 };
 
-// QR kod va to'lov linkini olish
+// QR kod va link generatsiya (o'zgartirilmadi)
 router.post("/get-payme-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -231,7 +170,6 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
@@ -279,7 +217,6 @@ router.post("/get-scan-payme-link", async (req, res) => {
   }
 });
 
-// To'lov holatini tekshirish
 router.post("/check-payment-status", async (req, res) => {
   try {
     const { order_id } = req.body;
@@ -317,55 +254,58 @@ router.post("/check-payment-status", async (req, res) => {
   }
 });
 
-// ASOSIY PAYME WEBHOOK ENDPOINT
+// ASOSIY PAYME WEBHOOK - YouTube dasturchisining strukturasiga asoslangan
 router.post("/", paymeCheckToken, async (req, res) => {
   try {
     const { method, params, id } = req.body;
 
-    console.log("Payme webhook received:", { method, params, id });
+    console.log("Payme webhook:", { method, params, id });
 
     switch (method) {
       case PaymeMethod.CheckPerformTransaction:
-        await checkPerformTransaction(req, res, params, id);
-        break;
-      case PaymeMethod.CreateTransaction:
-        await createTransaction(req, res, params, id);
-        break;
-      case PaymeMethod.PerformTransaction:
-        await performTransaction(req, res, params, id);
-        break;
+        return await checkPerformTransaction(req, res, params, id);
       case PaymeMethod.CheckTransaction:
-        await checkTransaction(req, res, params, id);
-        break;
+        return await checkTransaction(req, res, params, id);
+      case PaymeMethod.CreateTransaction:
+        return await createTransaction(req, res, params, id);
+      case PaymeMethod.PerformTransaction:
+        return await performTransaction(req, res, params, id);
       case PaymeMethod.CancelTransaction:
-        await cancelTransaction(req, res, params, id);
-        break;
+        return await cancelTransaction(req, res, params, id);
       case PaymeMethod.GetStatement:
-        await getStatement(req, res, params, id);
-        break;
+        return await getStatement(req, res, params, id);
       default:
-        sendPaymeError(res, PaymeError.CouldNotPerform, "Method not found", id);
+        return sendPaymeError(
+          res,
+          PaymeError.CantDoOperation,
+          "Method not found",
+          id
+        );
     }
   } catch (error) {
     console.error("Payme endpoint error:", error);
-    sendPaymeError(
+    return sendPaymeError(
       res,
-      PaymeError.CouldNotPerform,
-      "Internal server error",
+      PaymeError.CantDoOperation,
+      "Server error",
       req.body.id
     );
   }
 });
 
-// 1. CheckPerformTransaction - TUZATILGAN
+// 1. CheckPerformTransaction - YouTube dasturchisi mantiqiga asoslangan
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
 
-    console.log("CheckPerformTransaction called with:", { account, amount });
-
+    // Parametrlar tekshiruvi
     if (!account || !account.order_id) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAccount,
+        "Invalid account",
+        id
+      );
     }
 
     if (!amount || amount <= 0) {
@@ -377,170 +317,52 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // Faylni tekshirish
+    // Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
-    const serviceData = uploadedFile || scannedFile;
 
-    if (!serviceData) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
-    }
-
-    // Shu order uchun barcha aktiv tranzaksiyalarni olish
-    const existingTransactions = await paidModel.find({
-      "serviceData._id": account.order_id,
-      $or: [{ status: "pending" }, { status: "paid" }],
-    });
-
-    console.log(
-      "Active transactions for order:",
-      account.order_id,
-      existingTransactions.length
-    );
-
-    // Agar allaqachon to'langan bo'lsa
-    const paidTransaction = existingTransactions.find(
-      (t) => t.status === "paid"
-    );
-    if (paidTransaction) {
+    if (!uploadedFile && !scannedFile) {
       return sendPaymeError(
         res,
-        -31070, // OrderBlocked
-        "Order already paid",
+        PaymeError.InvalidAccount,
+        "Order not found",
         id
       );
     }
 
-    // Agar boshqa pending tranzaksiya mavjud bo'lsa
-    const pendingTransaction = existingTransactions.find(
-      (t) => t.status === "pending"
-    );
-    if (pendingTransaction) {
-      return sendPaymeError(
-        res,
-        -31080, // OrderProcessing
-        "Another transaction is processing for this order",
-        id
-      );
-    }
-
-    // Order to'lov uchun tayyor
-    return sendPaymeResponse(res, { allow: true }, id);
-  } catch (error) {
-    console.error("CheckPerformTransaction error:", error);
-    sendPaymeError(res, PaymeError.InvalidAccount, message, id);
-  }
-}
-
-// 2. CreateTransaction - MUAMMO HAL QILINDI
-async function createTransaction(req, res, params, id) {
-  try {
-    const { id: transactionId, time, amount, account } = params;
-
-    console.log("CreateTransaction called with:", { transactionId, account });
-
-    // 1. Aynan shu tranzaksiya mavjudligini tekshirish
-    let transaction = await paidModel.findOne({
-      paymeTransactionId: transactionId,
-    });
-
-    if (transaction) {
-      console.log("Transaction already exists:", transaction._id);
-      // Bir xil transaction ID bilan takror so'rov - bir xil javob qaytarish
-      return sendPaymeResponse(
-        res,
-        {
-          transaction: transaction._id.toString(),
-          state: getTransactionState(transaction),
-          create_time: transaction.paymeCreateTime,
-        },
-        id
-      );
-    }
-
-    // 2. Faylni tekshirish
-    const uploadedFile = await File.findById(account.order_id);
-    const scannedFile = await scanFileModel.findById(account.order_id);
-    const serviceData = uploadedFile || scannedFile;
-
-    if (!serviceData) {
-      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
-    }
-
-    // 3. Shu order uchun barcha BOSHQA tranzaksiyalarni olish
-    const existingTransactions = await paidModel.find({
+    // YouTube kodida: Allaqachon to'langan yoki pending tranzaksiya tekshiruvi
+    const existingTransaction = await paidModel.findOne({
       "serviceData._id": account.order_id,
-      paymeTransactionId: { $ne: transactionId }, // Bu tranzaksiyani hisobga olmaslik
+      paymentMethod: "payme",
+      $or: [{ status: "paid" }, { status: "pending" }],
     });
 
-    console.log(
-      "Existing transactions for order:",
-      account.order_id,
-      existingTransactions.length
-    );
-
-    // KRITIK: Agar shu order uchun boshqa pending yoki paid tranzaksiya mavjud bo'lsa
-    const otherActiveTransaction = existingTransactions.find(
-      (t) => t.status === "pending" || t.status === "paid"
-    );
-
-    if (otherActiveTransaction) {
-      console.log(
-        "Found other active transaction, status:",
-        otherActiveTransaction.status
-      );
-
-      if (otherActiveTransaction.status === "paid") {
+    if (existingTransaction) {
+      if (existingTransaction.status === "paid") {
+        return sendPaymeError(res, PaymeError.AlreadyDone, "Already paid", id);
+      }
+      if (existingTransaction.status === "pending") {
         return sendPaymeError(
           res,
-          -31070, // OrderBlocked
-          "Order already paid",
-          id
-        );
-      } else if (otherActiveTransaction.status === "pending") {
-        return sendPaymeError(
-          res,
-          -31080, // OrderProcessing
-          "Another transaction is processing for this order",
+          PaymeError.Pending,
+          "Transaction pending",
           id
         );
       }
     }
 
-    // 4. Yangi tranzaksiya yaratish
-    transaction = await paidModel.create({
-      paymeTransactionId: transactionId,
-      serviceData: serviceData,
-      amount: amount,
-      status: "pending",
-      paymeCreateTime: time,
-      paymentMethod: "payme",
-    });
-
-    console.log("Created new transaction:", transaction._id.toString());
-
-    sendPaymeResponse(
-      res,
-      {
-        transaction: transaction._id.toString(),
-        state: TransactionState.Pending,
-        create_time: time,
-      },
-      id
-    );
+    return sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
-    console.error("CreateTransaction error:", error);
-    sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+    console.error("CheckPerformTransaction error:", error);
+    return sendPaymeError(res, PaymeError.InvalidAccount, "Check error", id);
   }
 }
 
-// 3. PerformTransaction
-async function performTransaction(req, res, params, id) {
+// 2. CheckTransaction - YouTube dasturchisining mantiqiga asoslangan
+async function checkTransaction(req, res, params, id) {
   try {
-    const { id: transactionId } = params;
-
     const transaction = await paidModel.findOne({
-      paymeTransactionId: transactionId,
+      paymeTransactionId: params.id,
     });
 
     if (!transaction) {
@@ -552,32 +374,209 @@ async function performTransaction(req, res, params, id) {
       );
     }
 
-    if (transaction.status === "paid") {
+    // YouTube kodi: Har doim bir xil format qaytarish
+    const result = {
+      create_time: transaction.paymeCreateTime,
+      perform_time: transaction.paymePerformTime || 0,
+      cancel_time: transaction.paymeCancelTime || 0,
+      transaction: transaction.paymeTransactionId,
+      state: getTransactionState(transaction),
+      reason: transaction.paymeReason || null,
+    };
+
+    return sendPaymeResponse(res, result, id);
+  } catch (error) {
+    console.error("CheckTransaction error:", error);
+    return sendPaymeError(
+      res,
+      PaymeError.TransactionNotFound,
+      "Check error",
+      id
+    );
+  }
+}
+
+// 3. CreateTransaction - YouTube dasturchisining mantiqiga asoslangan
+async function createTransaction(req, res, params, id) {
+  try {
+    const { id: transactionId, time, amount, account } = params;
+
+    // Tranzaksiya mavjudligini tekshirish
+    let transaction = await paidModel.findOne({
+      paymeTransactionId: transactionId,
+    });
+
+    if (transaction) {
+      if (transaction.status !== PaymeTransactionState.Pending) {
+        return sendPaymeError(
+          res,
+          PaymeError.CantDoOperation,
+          "Can't create",
+          id
+        );
+      }
+
+      // YouTube kodi: Vaqt tekshiruvi (12 daqiqa)
+      const currentTime = Date.now();
+      const expirationTime =
+        (currentTime - transaction.paymeCreateTime) / 60000 < 12;
+
+      if (!expirationTime) {
+        await paidModel.findOneAndUpdate(
+          { paymeTransactionId: transactionId },
+          {
+            status: "cancelled",
+            paymeCancelTime: currentTime,
+            paymeReason: 4,
+          }
+        );
+        return sendPaymeError(
+          res,
+          PaymeError.CantDoOperation,
+          "Transaction expired",
+          id
+        );
+      }
+
       return sendPaymeResponse(
         res,
         {
-          transaction: transaction._id.toString(),
-          state: TransactionState.Paid,
-          perform_time: transaction.paymePerformTime,
+          create_time: transaction.paymeCreateTime,
+          transaction: transaction.paymeTransactionId,
+          state: PaymeTransactionState.Pending,
         },
         id
       );
     }
 
-    if (transaction.status === "cancelled") {
+    // Yangi tranzaksiya yaratishdan oldin tekshiruvlar
+    await checkPerformTransaction(req, res, params, id);
+
+    // Order ma'lumotlarini olish
+    const uploadedFile = await File.findById(account.order_id);
+    const scannedFile = await scanFileModel.findById(account.order_id);
+    const serviceData = uploadedFile || scannedFile;
+
+    if (!serviceData) {
       return sendPaymeError(
         res,
-        PaymeError.TransactionCancelled,
-        "Transaction cancelled",
+        PaymeError.InvalidAccount,
+        "Service not found",
+        id
+      );
+    }
+
+    // YouTube kodi: Bir xil order uchun boshqa tranzaksiya tekshiruvi
+    const existingOrderTransaction = await paidModel.findOne({
+      "serviceData._id": account.order_id,
+      paymentMethod: "payme",
+    });
+
+    if (existingOrderTransaction) {
+      if (existingOrderTransaction.status === "paid") {
+        return sendPaymeError(
+          res,
+          PaymeError.AlreadyDone,
+          "Order already paid",
+          id
+        );
+      }
+      if (existingOrderTransaction.status === "pending") {
+        return sendPaymeError(res, PaymeError.Pending, "Order pending", id);
+      }
+    }
+
+    // Yangi tranzaksiya yaratish
+    const newTransaction = await paidModel.create({
+      paymeTransactionId: transactionId,
+      serviceData: serviceData,
+      amount: amount,
+      status: "pending",
+      paymeCreateTime: time,
+      paymentMethod: "payme",
+    });
+
+    return sendPaymeResponse(
+      res,
+      {
+        transaction: newTransaction.paymeTransactionId,
+        state: PaymeTransactionState.Pending,
+        create_time: newTransaction.paymeCreateTime,
+      },
+      id
+    );
+  } catch (error) {
+    console.error("CreateTransaction error:", error);
+    return sendPaymeError(res, PaymeError.CantDoOperation, "Create error", id);
+  }
+}
+
+// 4. PerformTransaction - YouTube dasturchisining mantiqiga asoslangan
+async function performTransaction(req, res, params, id) {
+  try {
+    const currentTime = Date.now();
+
+    const transaction = await paidModel.findOne({
+      paymeTransactionId: params.id,
+    });
+
+    if (!transaction) {
+      return sendPaymeError(
+        res,
+        PaymeError.TransactionNotFound,
+        "Transaction not found",
+        id
+      );
+    }
+
+    if (transaction.status !== "pending") {
+      if (transaction.status !== "paid") {
+        return sendPaymeError(
+          res,
+          PaymeError.CantDoOperation,
+          "Can't perform",
+          id
+        );
+      }
+      return sendPaymeResponse(
+        res,
+        {
+          perform_time: transaction.paymePerformTime,
+          transaction: transaction.paymeTransactionId,
+          state: PaymeTransactionState.Paid,
+        },
+        id
+      );
+    }
+
+    // YouTube kodi: Vaqt tekshiruvi
+    const expirationTime =
+      (currentTime - transaction.paymeCreateTime) / 60000 < 12;
+    if (!expirationTime) {
+      await paidModel.findOneAndUpdate(
+        { paymeTransactionId: params.id },
+        {
+          status: "cancelled",
+          paymeCancelTime: currentTime,
+          paymeReason: 4,
+        }
+      );
+      return sendPaymeError(
+        res,
+        PaymeError.CantDoOperation,
+        "Transaction expired",
         id
       );
     }
 
     // To'lovni amalga oshirish
-    const performTime = Date.now();
-    transaction.status = "paid";
-    transaction.paymePerformTime = performTime;
-    await transaction.save();
+    await paidModel.findOneAndUpdate(
+      { paymeTransactionId: params.id },
+      {
+        status: "paid",
+        paymePerformTime: currentTime,
+      }
+    );
 
     // Statistikani yangilash
     if (transaction.serviceData.apparatId) {
@@ -587,7 +586,7 @@ async function performTransaction(req, res, params, id) {
       );
     }
 
-    // Socket.io orqali real-time xabar
+    // Socket.io xabar
     req.app.get("io").emit("tolovMuvaffaqiyatli", {
       fileId: transaction.serviceData._id,
       apparatId: transaction.serviceData.apparatId,
@@ -596,86 +595,26 @@ async function performTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
-    sendPaymeResponse(
+    return sendPaymeResponse(
       res,
       {
-        transaction: transaction._id.toString(),
-        state: TransactionState.Paid,
-        perform_time: performTime,
+        perform_time: currentTime,
+        transaction: transaction.paymeTransactionId,
+        state: PaymeTransactionState.Paid,
       },
       id
     );
   } catch (error) {
     console.error("PerformTransaction error:", error);
-    sendPaymeError(
-      res,
-      PaymeError.CouldNotPerform,
-      "Perform transaction failed",
-      id
-    );
+    return sendPaymeError(res, PaymeError.CantDoOperation, "Perform error", id);
   }
 }
 
-// 4. CheckTransaction - TUZATILGAN - DOIMO BIR XIL RESULT QAYTARISH
-async function checkTransaction(req, res, params, id) {
-  try {
-    const { id: transactionId } = params;
-
-    const transaction = await paidModel.findOne({
-      paymeTransactionId: transactionId,
-    });
-
-    if (!transaction) {
-      return sendPaymeError(
-        res,
-        PaymeError.TransactionNotFound,
-        "Transaction not found",
-        id
-      );
-    }
-
-    // MUHIM: Har doim bir xil tartibda va bir xil maydonlarni qaytarish
-    const result = {
-      transaction: transaction._id.toString(),
-      create_time: transaction.paymeCreateTime,
-      state: getTransactionState(transaction),
-    };
-
-    // Perform_time ni faqat paid bo'lganda qo'shish
-    if (transaction.status === "paid" && transaction.paymePerformTime) {
-      result.perform_time = transaction.paymePerformTime;
-    }
-
-    // Cancel_time ni faqat cancelled bo'lganda qo'shish
-    if (transaction.status === "cancelled" && transaction.paymeCancelTime) {
-      result.cancel_time = transaction.paymeCancelTime;
-    }
-
-    // Reason ni faqat cancelled bo'lganda qo'shish
-    if (transaction.status === "cancelled" && transaction.paymeReason) {
-      result.reason = transaction.paymeReason;
-    }
-
-    console.log("CheckTransaction result:", result);
-    sendPaymeResponse(res, result, id);
-  } catch (error) {
-    console.error("CheckTransaction error:", error);
-    sendPaymeError(
-      res,
-      PaymeError.CouldNotPerform,
-      "Check transaction failed",
-      id
-    );
-  }
-}
-
-// 5. CancelTransaction
+// 5. CancelTransaction - YouTube dasturchisining mantiqiga asoslangan
 async function cancelTransaction(req, res, params, id) {
   try {
-    const { id: transactionId, reason } = params;
-
     const transaction = await paidModel.findOne({
-      paymeTransactionId: transactionId,
+      paymeTransactionId: params.id,
     });
 
     if (!transaction) {
@@ -687,76 +626,49 @@ async function cancelTransaction(req, res, params, id) {
       );
     }
 
-    const cancelTime = Date.now();
+    const currentTime = Date.now();
 
-    // Allaqachon bekor qilingan tranzaksiya
-    if (transaction.status === "cancelled") {
-      return sendPaymeResponse(
-        res,
-        {
-          transaction: transaction._id.toString(),
-          cancel_time: transaction.paymeCancelTime || cancelTime,
-          state: transaction.paymePerformTime
-            ? TransactionState.PaidCanceled
-            : TransactionState.PendingCanceled,
-        },
-        id
-      );
-    }
-
-    if (transaction.status === "paid") {
-      // To'langan tranzaksiyani bekor qilish
-      transaction.status = "cancelled";
-      transaction.paymeReason = reason;
-      transaction.paymeCancelTime = cancelTime;
-      await transaction.save();
-
-      // Statistikani qaytarish
-      if (transaction.serviceData.apparatId) {
-        await reverseStatistics(
-          transaction.serviceData.apparatId,
-          transaction.amount
-        );
+    if (transaction.status === "pending" || transaction.status === "paid") {
+      let newState;
+      if (transaction.status === "paid") {
+        newState = "cancelled";
+        // Statistikani qaytarish
+        if (transaction.serviceData.apparatId) {
+          await reverseStatistics(
+            transaction.serviceData.apparatId,
+            transaction.amount
+          );
+        }
+      } else {
+        newState = "cancelled";
       }
 
-      return sendPaymeResponse(
-        res,
+      await paidModel.findOneAndUpdate(
+        { paymeTransactionId: params.id },
         {
-          transaction: transaction._id.toString(),
-          cancel_time: cancelTime,
-          state: TransactionState.PaidCanceled,
-        },
-        id
-      );
-    } else {
-      // Pending tranzaksiyani bekor qilish
-      transaction.status = "cancelled";
-      transaction.paymeReason = reason;
-      transaction.paymeCancelTime = cancelTime;
-      await transaction.save();
-
-      return sendPaymeResponse(
-        res,
-        {
-          transaction: transaction._id.toString(),
-          cancel_time: cancelTime,
-          state: TransactionState.PendingCanceled,
-        },
-        id
+          status: newState,
+          paymeReason: params.reason,
+          paymeCancelTime: currentTime,
+        }
       );
     }
-  } catch (error) {
-    console.error("CancelTransaction error:", error);
-    sendPaymeError(
+
+    return sendPaymeResponse(
       res,
-      PaymeError.CouldNotPerform,
-      "Cancel transaction failed",
+      {
+        cancel_time: transaction.paymeCancelTime || currentTime,
+        transaction: transaction.paymeTransactionId,
+        state: getTransactionState({ ...transaction, status: "cancelled" }),
+      },
       id
     );
+  } catch (error) {
+    console.error("CancelTransaction error:", error);
+    return sendPaymeError(res, PaymeError.CantDoOperation, "Cancel error", id);
   }
 }
 
-// 6. GetStatement
+// 6. GetStatement - YouTube dasturchisining mantiqiga asoslangan
 async function getStatement(req, res, params, id) {
   try {
     const { from, to } = params;
@@ -764,38 +676,53 @@ async function getStatement(req, res, params, id) {
     const transactions = await paidModel
       .find({
         paymeTransactionId: { $exists: true },
-        paymeCreateTime: {
-          $gte: from,
-          $lte: to,
-        },
+        paymeCreateTime: { $gte: from, $lte: to },
+        paymentMethod: "payme",
       })
       .sort({ paymeCreateTime: 1 });
 
-    const result = {
-      transactions: transactions.map((t) => ({
-        id: t.paymeTransactionId,
-        time: t.paymeCreateTime,
-        amount: t.amount,
-        account: {
-          order_id: t.serviceData._id,
-        },
-        create_time: t.paymeCreateTime,
-        perform_time: t.paymePerformTime || 0,
-        cancel_time: t.paymeCancelTime || 0,
-        transaction: t._id.toString(),
-        state: getTransactionState(t),
-        reason: t.paymeReason || null,
-      })),
-    };
+    const result = transactions.map((transaction) => ({
+      id: transaction.paymeTransactionId,
+      time: transaction.paymeCreateTime,
+      amount: transaction.amount,
+      account: {
+        order_id: transaction.serviceData._id,
+      },
+      create_time: transaction.paymeCreateTime,
+      perform_time: transaction.paymePerformTime || 0,
+      cancel_time: transaction.paymeCancelTime || 0,
+      transaction: transaction.paymeTransactionId,
+      state: getTransactionState(transaction),
+      reason: transaction.paymeReason || null,
+    }));
 
-    sendPaymeResponse(res, result, id);
+    return sendPaymeResponse(res, { transactions: result }, id);
   } catch (error) {
     console.error("GetStatement error:", error);
-    sendPaymeError(res, PaymeError.CouldNotPerform, "Get statement failed", id);
+    return sendPaymeError(
+      res,
+      PaymeError.CantDoOperation,
+      "Statement error",
+      id
+    );
   }
 }
 
-// Statistikani yangilash funksiyasi
+// Helper functions
+function getTransactionState(transaction) {
+  if (transaction.status === "paid") {
+    return PaymeTransactionState.Paid;
+  } else if (transaction.status === "cancelled") {
+    if (transaction.paymePerformTime) {
+      return PaymeTransactionState.PaidCanceled;
+    } else {
+      return PaymeTransactionState.PendingCanceled;
+    }
+  } else {
+    return PaymeTransactionState.Pending;
+  }
+}
+
 async function updateStatistics(apparatId, amount) {
   try {
     const bugun = new Date();
@@ -822,7 +749,6 @@ async function updateStatistics(apparatId, amount) {
 
     await statistika.save();
 
-    // Apparatning qog'oz sonini kamaytirish
     const apparat = await VendingApparat.findOne({ apparatId });
     if (apparat) {
       apparat.joriyQogozSoni -= 1;
@@ -833,7 +759,6 @@ async function updateStatistics(apparatId, amount) {
   }
 }
 
-// Statistikani qaytarish funksiyasi
 async function reverseStatistics(apparatId, amount) {
   try {
     const bugun = new Date();
@@ -854,7 +779,6 @@ async function reverseStatistics(apparatId, amount) {
       await statistika.save();
     }
 
-    // Apparatning qog'oz sonini qaytarish
     const apparat = await VendingApparat.findOne({ apparatId });
     if (apparat) {
       apparat.joriyQogozSoni += 1;
