@@ -148,10 +148,10 @@ router.post("/get-payme-link", async (req, res) => {
       ac: {
         order_id: orderId,
       },
-      a: amount * 100,
+      a: amount,
     };
 
-    const encodedParams = base64.encode(JSON.stringify(params));
+    const encodedParams = base64.encode(params);
     const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
@@ -195,10 +195,10 @@ router.post("/get-scan-payme-link", async (req, res) => {
       ac: {
         order_id: scanFile._id.toString(),
       },
-      a: amount * 100,
+      a: amount,
     };
 
-    const encodedParams = base64.encode(JSON.stringify(params));
+    const encodedParams = base64.encode(params);
     const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
 
     res.json({
