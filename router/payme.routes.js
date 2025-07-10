@@ -133,8 +133,7 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    const uploadedFile =
-      (await File.findById(orderId)) || (await scanFileModel.findById(orderId));
+    const uploadedFile = await File.findById(orderId);
 
     if (!uploadedFile) {
       return res.json({
@@ -151,10 +150,10 @@ router.post("/get-payme-link", async (req, res) => {
       a: amount,
     };
 
-    const encodedParams = base64.encode(
-      `m:686687d05e3cb0be785daea7;ac:${uploadedFile._id.toString()};a:${amount}`
+    const r = base64.encode(
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${uploadedFile._id};price=${amount}`
     );
-    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
+    const paymeLink = `https://checkout.paycom.uz/${r}`;
 
     res.json({
       status: "success",
