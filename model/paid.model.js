@@ -55,12 +55,19 @@ const paidSchema = new mongoose.Schema(
   }
 );
 
-// Indekslar
+// KRITIK: Indekslar - bu muammoning hal qiluvchisi
 paidSchema.index({ "serviceData._id": 1 });
 paidSchema.index({ status: 1 });
-paidSchema.index({ paymeTransactionId: 1 }, { sparse: true });
+paidSchema.index({ paymeTransactionId: 1 }, { sparse: true, unique: true });
 paidSchema.index({ clickTransactionId: 1 }, { sparse: true });
 paidSchema.index({ createdAt: 1 });
+
+// YANGI: Order uchun aktiv tranzaksiyalarni topish uchun compound index
+paidSchema.index({
+  "serviceData._id": 1,
+  status: 1,
+  paymentMethod: 1,
+});
 
 const paidModel = mongoose.model("paid", paidSchema);
 

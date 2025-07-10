@@ -382,40 +382,50 @@ async function checkPerformTransaction(req, res, params, id) {
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
 
-    // Shu order uchun barcha tranzaksiyalarni olish
+    if (!serviceData) {
+      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+    }
+
+    // Shu order uchun barcha aktiv tranzaksiyalarni olish
     const existingTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
+      $or: [{ status: "pending" }, { status: "paid" }],
     });
 
-    const orderState = getOrderState(serviceData, existingTransactions);
+    console.log(
+      "Active transactions for order:",
+      account.order_id,
+      existingTransactions.length
+    );
 
-    console.log("Order state:", orderState, "for order:", account.order_id);
-
-    // Order holatiga qarab javob berish
-    switch (orderState) {
-      case OrderState.WaitingPayment:
-        return sendPaymeResponse(res, { allow: true }, id);
-
-      case OrderState.Processing:
-        return sendPaymeError(
-          res,
-          PaymeError.OrderProcessing,
-          "Another transaction is processing for this order",
-          id
-        );
-
-      case OrderState.Blocked:
-        return sendPaymeError(
-          res,
-          PaymeError.OrderBlocked,
-          "Order already paid or blocked",
-          id
-        );
-
-      case OrderState.NotExists:
-      default:
-        return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+    // Agar allaqachon to'langan bo'lsa
+    const paidTransaction = existingTransactions.find(
+      (t) => t.status === "paid"
+    );
+    if (paidTransaction) {
+      return sendPaymeError(
+        res,
+        -31070, // OrderBlocked
+        "Order already paid",
+        id
+      );
     }
+
+    // Agar boshqa pending tranzaksiya mavjud bo'lsa
+    const pendingTransaction = existingTransactions.find(
+      (t) => t.status === "pending"
+    );
+    if (pendingTransaction) {
+      return sendPaymeError(
+        res,
+        -31080, // OrderProcessing
+        "Another transaction is processing for this order",
+        id
+      );
+    }
+
+    // Order to'lov uchun tayyor
+    return sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
     sendPaymeError(res, PaymeError.InvalidAccount, message, id);
@@ -436,24 +446,16 @@ async function createTransaction(req, res, params, id) {
 
     if (transaction) {
       console.log("Transaction already exists:", transaction._id);
-      if (transaction.status === "pending") {
-        return sendPaymeResponse(
-          res,
-          {
-            transaction: transaction._id.toString(),
-            state: TransactionState.Pending,
-            create_time: transaction.paymeCreateTime,
-          },
-          id
-        );
-      } else {
-        return sendPaymeError(
-          res,
-          PaymeError.TransactionAlreadyExists,
-          "Transaction already exists",
-          id
-        );
-      }
+      // Bir xil transaction ID bilan takror so'rov - bir xil javob qaytarish
+      return sendPaymeResponse(
+        res,
+        {
+          transaction: transaction._id.toString(),
+          state: getTransactionState(transaction),
+          create_time: transaction.paymeCreateTime,
+        },
+        id
+      );
     }
 
     // 2. Faylni tekshirish
@@ -461,40 +463,48 @@ async function createTransaction(req, res, params, id) {
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
 
-    // 3. Shu order uchun barcha tranzaksiyalarni olish
+    if (!serviceData) {
+      return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+    }
+
+    // 3. Shu order uchun barcha BOSHQA tranzaksiyalarni olish
     const existingTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
+      paymeTransactionId: { $ne: transactionId }, // Bu tranzaksiyani hisobga olmaslik
     });
 
-    const orderState = getOrderState(serviceData, existingTransactions);
+    console.log(
+      "Existing transactions for order:",
+      account.order_id,
+      existingTransactions.length
+    );
 
-    console.log("Order state for CreateTransaction:", orderState);
+    // KRITIK: Agar shu order uchun boshqa pending yoki paid tranzaksiya mavjud bo'lsa
+    const otherActiveTransaction = existingTransactions.find(
+      (t) => t.status === "pending" || t.status === "paid"
+    );
 
-    // Order holatiga qarab javob berish
-    switch (orderState) {
-      case OrderState.WaitingPayment:
-        // Yangi tranzaksiya yaratish mumkin
-        break;
+    if (otherActiveTransaction) {
+      console.log(
+        "Found other active transaction, status:",
+        otherActiveTransaction.status
+      );
 
-      case OrderState.Processing:
+      if (otherActiveTransaction.status === "paid") {
         return sendPaymeError(
           res,
-          PaymeError.OrderProcessing,
+          -31070, // OrderBlocked
+          "Order already paid",
+          id
+        );
+      } else if (otherActiveTransaction.status === "pending") {
+        return sendPaymeError(
+          res,
+          -31080, // OrderProcessing
           "Another transaction is processing for this order",
           id
         );
-
-      case OrderState.Blocked:
-        return sendPaymeError(
-          res,
-          PaymeError.OrderBlocked,
-          "Order already paid or blocked",
-          id
-        );
-
-      case OrderState.NotExists:
-      default:
-        return sendPaymeError(res, PaymeError.InvalidAccount, message, id);
+      }
     }
 
     // 4. Yangi tranzaksiya yaratish
@@ -624,28 +634,29 @@ async function checkTransaction(req, res, params, id) {
       );
     }
 
-    // MUHIM: Har doim bir xil tartibda maydonlarni qaytarish
+    // MUHIM: Har doim bir xil tartibda va bir xil maydonlarni qaytarish
     const result = {
       transaction: transaction._id.toString(),
       create_time: transaction.paymeCreateTime,
       state: getTransactionState(transaction),
     };
 
-    // Perform_time ni faqat mavjud bo'lsa qo'shish
-    if (transaction.paymePerformTime) {
+    // Perform_time ni faqat paid bo'lganda qo'shish
+    if (transaction.status === "paid" && transaction.paymePerformTime) {
       result.perform_time = transaction.paymePerformTime;
     }
 
-    // Cancel_time ni faqat mavjud bo'lsa qo'shish
-    if (transaction.paymeCancelTime) {
+    // Cancel_time ni faqat cancelled bo'lganda qo'shish
+    if (transaction.status === "cancelled" && transaction.paymeCancelTime) {
       result.cancel_time = transaction.paymeCancelTime;
     }
 
-    // Reason ni faqat mavjud bo'lsa qo'shish
-    if (transaction.paymeReason) {
+    // Reason ni faqat cancelled bo'lganda qo'shish
+    if (transaction.status === "cancelled" && transaction.paymeReason) {
       result.reason = transaction.paymeReason;
     }
 
+    console.log("CheckTransaction result:", result);
     sendPaymeResponse(res, result, id);
   } catch (error) {
     console.error("CheckTransaction error:", error);
