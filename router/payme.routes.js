@@ -402,7 +402,7 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction - TUZATILGAN
+// 3. CreateTransaction - MUAMMO HAL QILINDI
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -412,20 +412,20 @@ async function createTransaction(req, res, params, id) {
       account: account.order_id,
     });
 
-    // 1. Tranzaksiya allaqachon mavjudligini tekshirish
-    let transaction = await paidModel.findOne({
+    // 1. Aynan shu Payme transaction ID mavjudligini tekshirish
+    let existingTransaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
 
-    if (transaction) {
-      console.log("Transaction exists, returning existing data");
-      // Bir xil transaction ID - bir xil javob qaytarish
+    if (existingTransaction) {
+      console.log("Same transaction ID exists, returning same response");
+      // Bir xil Payme transaction ID - bir xil javob qaytarish
       return sendPaymeResponse(
         res,
         {
-          transaction: transaction._id.toString(), // DB ID qaytarish
-          state: getTransactionState(transaction),
-          create_time: transaction.paymeCreateTime,
+          transaction: existingTransaction._id.toString(), // DB ID qaytarish
+          state: getTransactionState(existingTransaction),
+          create_time: existingTransaction.paymeCreateTime,
         },
         id
       );
@@ -445,22 +445,27 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 3. KRITIK: Shu order uchun boshqa aktiv tranzaksiya bormi?
-    const existingOrderTransaction = await paidModel.findOne({
+    // 3. KRITIK: Shu order uchun BOSHQA Payme tranzaksiyalari bormi?
+    const otherPaymeTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
       paymentMethod: "payme",
-      paymeTransactionId: { $ne: transactionId }, // Bu tranzaksiya emas
+      // Har qanday Payme tranzaksiya (to'langan yoki pending)
       status: { $in: ["pending", "paid"] },
     });
 
     console.log(
-      "Existing order transaction:",
-      existingOrderTransaction ? "YES" : "NO"
+      "Other Payme transactions for this order:",
+      otherPaymeTransactions.length
     );
 
-    if (existingOrderTransaction) {
-      if (existingOrderTransaction.status === "paid") {
-        console.log("Order already paid - returning error -31060");
+    // Agar shu order uchun BOSHQA Payme tranzaksiya mavjud bo'lsa
+    if (otherPaymeTransactions.length > 0) {
+      const activeTransaction = otherPaymeTransactions[0];
+
+      if (activeTransaction.status === "paid") {
+        console.log(
+          "Order already paid by another Payme transaction - returning -31060"
+        );
         return sendPaymeError(
           res,
           PaymeError.AlreadyDone,
@@ -468,19 +473,20 @@ async function createTransaction(req, res, params, id) {
           id
         );
       }
-      if (existingOrderTransaction.status === "pending") {
-        console.log("Order pending - returning error -31050");
+
+      if (activeTransaction.status === "pending") {
+        console.log("Order has pending Payme transaction - returning -31050");
         return sendPaymeError(
           res,
           PaymeError.Pending,
-          "Another transaction is processing",
+          "Another transaction is processing this order",
           id
         );
       }
     }
 
-    // 4. Yangi tranzaksiya yaratish
-    console.log("Creating new transaction");
+    // 4. Yangi tranzaksiya yaratish (faqat order uchun birinchi Payme tranzaksiya bo'lsa)
+    console.log("Creating new transaction for order");
     const newTransaction = await paidModel.create({
       paymeTransactionId: transactionId,
       serviceData: serviceData,
