@@ -151,7 +151,7 @@ router.post("/get-payme-link", async (req, res) => {
     }
 
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};price=${amount}`
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
@@ -192,7 +192,7 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};price=${amount}`
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
