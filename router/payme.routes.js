@@ -714,7 +714,7 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 5. CancelTransaction - o'zgartirilmadi
+// 5. CancelTransaction - TUZATILGAN
 async function cancelTransaction(req, res, params, id) {
   try {
     const transaction = await paidModel.findOne({
@@ -732,38 +732,66 @@ async function cancelTransaction(req, res, params, id) {
 
     const currentTime = Date.now();
 
-    if (transaction.status === "pending" || transaction.status === "paid") {
-      let newState;
-      if (transaction.status === "paid") {
-        newState = "cancelled";
-        // Statistikani qaytarish
-        if (transaction.serviceData.apparatId) {
-          await reverseStatistics(
-            transaction.serviceData.apparatId,
-            transaction.amount
-          );
-        }
-      } else {
-        newState = "cancelled";
-      }
-
-      await paidModel.findOneAndUpdate(
-        { paymeTransactionId: params.id },
+    // KRITIK: Agar tranzaksiya allaqachon bekor qilingan bo'lsa
+    if (transaction.status === "cancelled") {
+      return sendPaymeResponse(
+        res,
         {
-          status: newState,
-          paymeReason: params.reason,
-          paymeCancelTime: currentTime,
-        }
+          cancel_time: transaction.paymeCancelTime,
+          transaction: transaction._id.toString(),
+          state: getTransactionState(transaction),
+        },
+        id
       );
     }
 
-    return sendPaymeResponse(
+    // KRITIK: Faqat pending yoki paid tranzaksiyalarni bekor qilish mumkin
+    if (transaction.status === "pending" || transaction.status === "paid") {
+      const wasCompleted = transaction.status === "paid";
+
+      // Tranzaksiyani bekor qilish
+      const updatedTransaction = await paidModel.findOneAndUpdate(
+        { paymeTransactionId: params.id },
+        {
+          status: "cancelled",
+          paymeReason: params.reason,
+          paymeCancelTime: currentTime,
+        },
+        { new: true } // Yangilangan dokumentni qaytarish
+      );
+
+      // Agar to'langan tranzaksiya bekor qilinsa, statistikani qaytarish
+      if (wasCompleted && transaction.serviceData.apparatId) {
+        await reverseStatistics(
+          transaction.serviceData.apparatId,
+          transaction.amount
+        );
+      }
+
+      // KRITIK: State to'g'ri hisoblash
+      let state;
+      if (wasCompleted) {
+        state = PaymeTransactionState.PaidCanceled; // -2
+      } else {
+        state = PaymeTransactionState.PendingCanceled; // -1
+      }
+
+      return sendPaymeResponse(
+        res,
+        {
+          cancel_time: currentTime,
+          transaction: transaction._id.toString(),
+          state: state,
+        },
+        id
+      );
+    }
+
+    // Agar tranzaksiya bekor qilish mumkin bo'lmagan holatda bo'lsa
+    return sendPaymeError(
       res,
-      {
-        cancel_time: transaction.paymeCancelTime || currentTime,
-        transaction: transaction._id.toString(),
-        state: getTransactionState({ ...transaction, status: "cancelled" }),
-      },
+      PaymeError.CantDoOperation,
+      "Can't cancel transaction",
       id
     );
   } catch (error) {
@@ -820,15 +848,16 @@ function isValidObjectId(str) {
 
 function getTransactionState(transaction) {
   if (transaction.status === "paid") {
-    return PaymeTransactionState.Paid;
+    return PaymeTransactionState.Paid; // 2
   } else if (transaction.status === "cancelled") {
-    if (transaction.paymePerformTime) {
-      return PaymeTransactionState.PaidCanceled;
+    // KRITIK: Agar perform_time mavjud bo'lsa (ya'ni to'langan bo'lsa), PaidCanceled
+    if (transaction.paymePerformTime && transaction.paymePerformTime > 0) {
+      return PaymeTransactionState.PaidCanceled; // -2
     } else {
-      return PaymeTransactionState.PendingCanceled;
+      return PaymeTransactionState.PendingCanceled; // -1
     }
   } else {
-    return PaymeTransactionState.Pending;
+    return PaymeTransactionState.Pending; // 1
   }
 }
 
