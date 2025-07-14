@@ -1,4 +1,4 @@
-// 1. CheckPerformTransaction - TEST ENVIRONMENT UCHUN
+// router/payme.routes.js - TUZATILGAN VERSIYA
 import express from "express";
 import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
@@ -11,7 +11,7 @@ import base64 from "base-64";
 
 const router = express.Router();
 
-// YouTube dasturchisining kodiga asoslangan PAYME ERROR kodlari
+// YANGILANGAN ERROR KODLAR - Payme spetsifikatsiyasiga mos
 const PaymeError = {
   InvalidAmount: -31001, // Noto'g'ri summa
   InvalidAccount: -31050, // Noto'g'ri account
@@ -22,10 +22,10 @@ const PaymeError = {
   Pending: -31050, // Kutish holatida
 };
 
-// Bizning loyiha uchun summa chegaralari
+// YANGILANGAN: Summa chegaralari - test environment uchun
 const PAYMENT_LIMITS = {
-  MIN_AMOUNT: 600, // Minimum 600 som (1 qog'oz)
-  MAX_AMOUNT: 5000000, // Maksimum 5 million som
+  MIN_AMOUNT: 100, // Minimum 1 som (100 tiyin)
+  MAX_AMOUNT: 50000000, // Maksimum 500,000 som (50,000,000 tiyin)
 };
 
 // Payme metodlari
@@ -38,7 +38,7 @@ const PaymeMethod = {
   GetStatement: "GetStatement",
 };
 
-// Transaction state (YouTube kod asosida)
+// Transaction state
 const PaymeTransactionState = {
   Paid: 2,
   Pending: 1,
@@ -46,7 +46,7 @@ const PaymeTransactionState = {
   PaidCanceled: -2,
 };
 
-// YouTube dasturchisining authentication mantiqiga asoslangan
+// Authentication - o'zgartirilmadi
 const paymeCheckToken = (req, res, next) => {
   try {
     const { id } = req.body;
@@ -108,7 +108,7 @@ const paymeCheckToken = (req, res, next) => {
   }
 };
 
-// YouTube kodiga asoslangan error va response funktsilar
+// Helper functions - o'zgartirilmadi
 const sendPaymeError = (res, code, message, id = null) => {
   return res.json({
     jsonrpc: "2.0",
@@ -128,7 +128,7 @@ const sendPaymeResponse = (res, result, id = null) => {
   });
 };
 
-// QR kod va link generatsiya (o'zgartirilmadi)
+// QR kod va link generatsiya - o'zgartirilmadi
 router.post("/get-payme-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -262,7 +262,7 @@ router.post("/check-payment-status", async (req, res) => {
   }
 });
 
-// ASOSIY PAYME WEBHOOK - YouTube dasturchisining strukturasiga asoslangan
+// ASOSIY PAYME WEBHOOK
 router.post("/", paymeCheckToken, async (req, res) => {
   try {
     const { method, params, id } = req.body;
@@ -301,14 +301,41 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// 1. CheckPerformTransaction - TO'LIQ VALIDATSIYA
+// 1. CheckPerformTransaction - TUZATILGAN
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
 
     console.log("CheckPerformTransaction:", { account, amount });
 
-    // 1. Account parametrini tekshirish
+    // 1. KRITIK: Amount validatsiyasi (tiyin formatida keladi)
+    if (!amount || typeof amount !== "number" || amount <= 0) {
+      console.log("Invalid amount - not a valid number");
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAmount,
+        "Invalid amount",
+        id
+      );
+    }
+
+    // 2. KRITIK: Amount chegaralarini tekshirish (tiyin formatida)
+    if (
+      amount < PAYMENT_LIMITS.MIN_AMOUNT ||
+      amount > PAYMENT_LIMITS.MAX_AMOUNT
+    ) {
+      console.log(
+        `Amount out of range: ${amount} tiyin. Range: ${PAYMENT_LIMITS.MIN_AMOUNT}-${PAYMENT_LIMITS.MAX_AMOUNT}`
+      );
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAmount,
+        "Amount out of range",
+        id
+      );
+    }
+
+    // 3. Account parametrini tekshirish
     if (!account || !account.order_id) {
       console.log("Invalid account - no order_id");
       return sendPaymeError(
@@ -319,7 +346,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 2. Account format tekshirish (ObjectId formatda bo'lishi kerak)
+    // 4. Account format tekshirish (ObjectId formatda bo'lishi kerak)
     if (!isValidObjectId(account.order_id)) {
       console.log("Invalid account - not valid ObjectId format");
       return sendPaymeError(
@@ -330,37 +357,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 3. Amount parametrini tekshirish
-    if (!amount || typeof amount !== "number") {
-      console.log("Invalid amount - not a number");
-      return sendPaymeError(
-        res,
-        PaymeError.InvalidAmount,
-        "Invalid amount",
-        id
-      );
-    }
-
-    // 4. Amount tiyin formatidan som formatiga o'tkazish (Payme tiyin ishlatadi)
-    const amountInSom = amount / 100;
-
-    // 5. Summa chegaralarini tekshirish
-    if (
-      amountInSom < PAYMENT_LIMITS.MIN_AMOUNT ||
-      amountInSom > PAYMENT_LIMITS.MAX_AMOUNT
-    ) {
-      console.log(
-        `Amount out of range: ${amountInSom} som. Range: ${PAYMENT_LIMITS.MIN_AMOUNT}-${PAYMENT_LIMITS.MAX_AMOUNT}`
-      );
-      return sendPaymeError(
-        res,
-        PaymeError.InvalidAmount,
-        "Amount out of range",
-        id
-      );
-    }
-
-    // 6. Order mavjudligini tekshirish
+    // 5. Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
 
@@ -374,42 +371,49 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 7. TEST ENVIRONMENT UCHUN: Faqat oxirgi 1 soat ichidagi tranzaksiyalarni tekshirish
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-
-    const recentActiveTransactions = await paidModel.find({
+    // 6. TUZATILDI: Mavjud tranzaksiyalarni tekshirish
+    // Hamma Payme tranzaksiyalar (vaqt chegarasisiz)
+    const existingPayments = await paidModel.find({
       $or: [
         { "serviceData._id": account.order_id },
         { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
       ],
       paymentMethod: "payme",
-      $or: [{ status: "paid" }, { status: "pending" }],
-      paymeCreateTime: { $gte: oneHourAgo }, // Faqat oxirgi 1 soat
     });
 
-    console.log(
-      "Recent active transactions (last 1 hour):",
-      recentActiveTransactions.length
+    console.log("Existing Payme payments for order:", existingPayments.length);
+
+    // Aktiv (pending yoki paid) tranzaksiyalarni tekshirish
+    const activePayments = existingPayments.filter(
+      (payment) => payment.status === "pending" || payment.status === "paid"
     );
 
-    if (recentActiveTransactions.length > 0) {
-      const activeTransaction = recentActiveTransactions[0];
-      if (activeTransaction.status === "paid") {
+    if (activePayments.length > 0) {
+      const activePayment = activePayments[0];
+      console.log(`Active payment found: Status = ${activePayment.status}`);
+
+      if (activePayment.status === "paid") {
         console.log("Order already paid");
-        return sendPaymeError(res, PaymeError.AlreadyDone, "Already paid", id);
-      }
-      if (activeTransaction.status === "pending") {
-        console.log("Order pending");
         return sendPaymeError(
           res,
-          PaymeError.Pending,
+          PaymeError.InvalidAccount,
+          "Order already paid",
+          id
+        );
+      }
+
+      if (activePayment.status === "pending") {
+        console.log("Order has pending transaction");
+        return sendPaymeError(
+          res,
+          PaymeError.InvalidAccount,
           "Transaction pending",
           id
         );
       }
     }
 
-    // 8. Agar hamma narsa yaxshi bo'lsa
+    // 7. Agar hamma validatsiya o'tgan bo'lsa
     console.log("CheckPerformTransaction - All validations passed");
     return sendPaymeResponse(res, { allow: true }, id);
   } catch (error) {
@@ -418,14 +422,17 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CheckTransaction - TRANSACTION FIELD TO'G'RI QIYMAT
+// 2. CheckTransaction - TUZATILGAN
 async function checkTransaction(req, res, params, id) {
   try {
+    console.log("CheckTransaction called with ID:", params.id);
+
     const transaction = await paidModel.findOne({
       paymeTransactionId: params.id,
     });
 
     if (!transaction) {
+      console.log("Transaction not found:", params.id);
       return sendPaymeError(
         res,
         PaymeError.TransactionNotFound,
@@ -436,12 +443,12 @@ async function checkTransaction(req, res, params, id) {
 
     console.log("CheckTransaction found:", transaction.paymeTransactionId);
 
-    // MUHIM: transaction maydonida internal DB ID qaytarish (YouTube kodiga asoslangan)
+    // KRITIK: transaction maydonida internal DB ID qaytarish
     const result = {
       create_time: transaction.paymeCreateTime,
       perform_time: transaction.paymePerformTime || 0,
       cancel_time: transaction.paymeCancelTime || 0,
-      transaction: transaction._id.toString(), // DB ID qaytarish, Payme ID emas
+      transaction: transaction._id.toString(), // DB ID qaytarish
       state: getTransactionState(transaction),
       reason: transaction.paymeReason || null,
     };
@@ -459,7 +466,7 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction - MUAMMO HAL QILINDI
+// 3. CreateTransaction - TUZATILGAN
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -467,20 +474,56 @@ async function createTransaction(req, res, params, id) {
     console.log("CreateTransaction called:", {
       transactionId,
       account: account.order_id,
+      amount,
     });
 
-    // 1. Aynan shu Payme transaction ID mavjudligini tekshirish
+    // 1. KRITIK: Amount validatsiyasi
+    if (!amount || typeof amount !== "number" || amount <= 0) {
+      console.log("CreateTransaction - Invalid amount");
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAmount,
+        "Invalid amount",
+        id
+      );
+    }
+
+    // 2. KRITIK: Amount chegaralarini tekshirish
+    if (
+      amount < PAYMENT_LIMITS.MIN_AMOUNT ||
+      amount > PAYMENT_LIMITS.MAX_AMOUNT
+    ) {
+      console.log(`CreateTransaction - Amount out of range: ${amount}`);
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAmount,
+        "Amount out of range",
+        id
+      );
+    }
+
+    // 3. Account validatsiyasi
+    if (!account || !account.order_id || !isValidObjectId(account.order_id)) {
+      console.log("CreateTransaction - Invalid account");
+      return sendPaymeError(
+        res,
+        PaymeError.InvalidAccount,
+        "Invalid account",
+        id
+      );
+    }
+
+    // 4. Aynan shu Payme transaction ID mavjudligini tekshirish
     let existingTransaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
 
     if (existingTransaction) {
       console.log("Same transaction ID exists, returning same response");
-      // Bir xil Payme transaction ID - bir xil javob qaytarish
       return sendPaymeResponse(
         res,
         {
-          transaction: existingTransaction._id.toString(), // DB ID qaytarish
+          transaction: existingTransaction._id.toString(),
           state: getTransactionState(existingTransaction),
           create_time: existingTransaction.paymeCreateTime,
         },
@@ -488,12 +531,13 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 2. Order mavjudligini tekshirish
+    // 5. Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
 
     if (!serviceData) {
+      console.log("CreateTransaction - Order not found");
       return sendPaymeError(
         res,
         PaymeError.InvalidAccount,
@@ -502,74 +546,48 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 3. KRITIK: Shu order uchun RECENT aktiv Payme tranzaksiyalari bormi?
-    // TEST ENVIRONMENT UCHUN: Faqat oxirgi 1 soat ichidagi tranzaksiyalarni tekshirish
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-
-    const recentPaymeTransactions = await paidModel.find({
+    // 6. KRITIK: Shu order uchun aktiv Payme tranzaksiyalar bormi?
+    const existingPayments = await paidModel.find({
       $or: [
         { "serviceData._id": account.order_id },
         { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
       ],
       paymentMethod: "payme",
-      paymeCreateTime: { $gte: oneHourAgo }, // Faqat oxirgi 1 soat
     });
 
-    console.log(
-      "Recent Payme transactions for order (last 1 hour):",
-      account.order_id
-    );
-    console.log("Found recent transactions:", recentPaymeTransactions.length);
-
-    recentPaymeTransactions.forEach((tx) => {
-      console.log(
-        `Recent Transaction: ${tx.paymeTransactionId}, Status: ${
-          tx.status
-        }, Time: ${new Date(tx.paymeCreateTime)}`
-      );
-    });
+    console.log("Existing Payme payments for order:", existingPayments.length);
 
     // Aktiv tranzaksiyalarni filter qilish
-    const activeTransactions = recentPaymeTransactions.filter(
-      (tx) => tx.status === "pending" || tx.status === "paid"
+    const activePayments = existingPayments.filter(
+      (payment) => payment.status === "pending" || payment.status === "paid"
     );
 
-    console.log("Recent active transactions:", activeTransactions.length);
+    if (activePayments.length > 0) {
+      const activePayment = activePayments[0];
+      console.log(`Active payment found: Status = ${activePayment.status}`);
 
-    // Agar shu order uchun RECENT aktiv Payme tranzaksiya mavjud bo'lsa
-    if (activeTransactions.length > 0) {
-      const activeTransaction = activeTransactions[0];
-
-      console.log(
-        `Recent active transaction found: ${activeTransaction.paymeTransactionId}, Status: ${activeTransaction.status}`
-      );
-
-      if (activeTransaction.status === "paid") {
-        console.log(
-          "Order already paid by recent Payme transaction - returning -31060"
-        );
+      if (activePayment.status === "paid") {
+        console.log("CreateTransaction - Order already paid");
         return sendPaymeError(
           res,
-          PaymeError.AlreadyDone,
+          PaymeError.InvalidAccount,
           "Order already paid",
           id
         );
       }
 
-      if (activeTransaction.status === "pending") {
-        console.log(
-          "Order has recent pending Payme transaction - returning -31050"
-        );
+      if (activePayment.status === "pending") {
+        console.log("CreateTransaction - Order has pending transaction");
         return sendPaymeError(
           res,
-          PaymeError.Pending,
+          PaymeError.InvalidAccount,
           "Another transaction is processing this order",
           id
         );
       }
     }
 
-    // 4. Yangi tranzaksiya yaratish (faqat order uchun birinchi Payme tranzaksiya bo'lsa)
+    // 7. Yangi tranzaksiya yaratish
     console.log("Creating new transaction for order");
     const newTransaction = await paidModel.create({
       paymeTransactionId: transactionId,
@@ -585,7 +603,7 @@ async function createTransaction(req, res, params, id) {
     return sendPaymeResponse(
       res,
       {
-        transaction: newTransaction._id.toString(), // DB ID qaytarish
+        transaction: newTransaction._id.toString(),
         state: PaymeTransactionState.Pending,
         create_time: newTransaction.paymeCreateTime,
       },
@@ -597,7 +615,7 @@ async function createTransaction(req, res, params, id) {
   }
 }
 
-// 4. PerformTransaction - YouTube dasturchisining mantiqiga asoslangan
+// 4. PerformTransaction - o'zgartirilmadi
 async function performTransaction(req, res, params, id) {
   try {
     const currentTime = Date.now();
@@ -628,14 +646,14 @@ async function performTransaction(req, res, params, id) {
         res,
         {
           perform_time: transaction.paymePerformTime,
-          transaction: transaction._id.toString(), // DB ID qaytarish
+          transaction: transaction._id.toString(),
           state: PaymeTransactionState.Paid,
         },
         id
       );
     }
 
-    // YouTube kodi: Vaqt tekshiruvi
+    // Vaqt tekshiruvi
     const expirationTime =
       (currentTime - transaction.paymeCreateTime) / 60000 < 12;
     if (!expirationTime) {
@@ -685,7 +703,7 @@ async function performTransaction(req, res, params, id) {
       res,
       {
         perform_time: currentTime,
-        transaction: transaction._id.toString(), // DB ID qaytarish
+        transaction: transaction._id.toString(),
         state: PaymeTransactionState.Paid,
       },
       id
@@ -696,7 +714,7 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 5. CancelTransaction - YouTube dasturchisining mantiqiga asoslangan
+// 5. CancelTransaction - o'zgartirilmadi
 async function cancelTransaction(req, res, params, id) {
   try {
     const transaction = await paidModel.findOne({
@@ -743,7 +761,7 @@ async function cancelTransaction(req, res, params, id) {
       res,
       {
         cancel_time: transaction.paymeCancelTime || currentTime,
-        transaction: transaction._id.toString(), // DB ID qaytarish
+        transaction: transaction._id.toString(),
         state: getTransactionState({ ...transaction, status: "cancelled" }),
       },
       id
@@ -754,7 +772,7 @@ async function cancelTransaction(req, res, params, id) {
   }
 }
 
-// 6. GetStatement - YouTube dasturchisining mantiqiga asoslangan
+// 6. GetStatement - o'zgartirilmadi
 async function getStatement(req, res, params, id) {
   try {
     const { from, to } = params;
@@ -777,7 +795,7 @@ async function getStatement(req, res, params, id) {
       create_time: transaction.paymeCreateTime,
       perform_time: transaction.paymePerformTime || 0,
       cancel_time: transaction.paymeCancelTime || 0,
-      transaction: transaction._id.toString(), // DB ID qaytarish
+      transaction: transaction._id.toString(),
       state: getTransactionState(transaction),
       reason: transaction.paymeReason || null,
     }));
@@ -794,9 +812,8 @@ async function getStatement(req, res, params, id) {
   }
 }
 
-// Helper functions
+// Helper functions - o'zgartirilmadi
 function isValidObjectId(str) {
-  // MongoDB ObjectId formatini tekshirish
   if (!str || typeof str !== "string") return false;
   return /^[0-9a-fA-F]{24}$/.test(str);
 }
