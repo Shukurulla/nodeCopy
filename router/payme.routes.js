@@ -150,16 +150,11 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    const params = {
-      m: "686687d05e3cb0be785daea7",
-      ac: {
-        order_id: orderId,
-      },
-      a: amount * 100,
-    };
+    const r = base64.encode(
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};price=${amount}`
+    );
 
-    const encodedParams = base64.encode(JSON.stringify(params));
-    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
+    const paymeLink = `https://checkout.paycom.uz/${r}`;
 
     res.json({
       status: "success",
@@ -196,17 +191,11 @@ router.post("/get-scan-payme-link", async (req, res) => {
         message: "Bunday kod topilmadi",
       });
     }
+    const r = base64.encode(
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};price=${amount}`
+    );
 
-    const params = {
-      m: "686687d05e3cb0be785daea7",
-      ac: {
-        order_id: scanFile._id.toString(),
-      },
-      a: amount * 100,
-    };
-
-    const encodedParams = base64.encode(JSON.stringify(params));
-    const paymeLink = `https://checkout.paycom.uz/${encodedParams}`;
+    const paymeLink = `https://checkout.paycom.uz/${r}`;
 
     res.json({
       status: "success",
