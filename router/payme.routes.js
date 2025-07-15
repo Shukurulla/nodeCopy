@@ -1,4 +1,4 @@
-// router/payme.routes.js - TO'LIQ TUZATILGAN VERSIYA
+// router/payme.routes.js - DJANGO LOYIHASIGA MOSLANGAN VERSIYA
 import express from "express";
 import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
@@ -11,7 +11,7 @@ import base64 from "base-64";
 
 const router = express.Router();
 
-// Payme error kodlari
+// Payme error kodlari (Django loyihasiga mos)
 const PaymeError = {
   InvalidAmount: -31001,
   InvalidAccount: -31050,
@@ -38,7 +38,7 @@ const PaymeMethod = {
   GetStatement: "GetStatement",
 };
 
-// Transaction state
+// Transaction state (Django loyihasiga mos)
 const PaymeTransactionState = {
   Paid: 2,
   Pending: 1,
@@ -46,7 +46,7 @@ const PaymeTransactionState = {
   PaidCanceled: -2,
 };
 
-// Detail obyektini yaratish funksiyasi
+// Detail obyektini yaratish (Django loyihasiga mos)
 const createDetailObject = (
   amount,
   title = "Vending apparat chop etish xizmati"
@@ -55,19 +55,20 @@ const createDetailObject = (
     receipt_type: 0,
     items: [
       {
+        discount: 0,
         title: title,
         price: amount,
         count: 1,
-        code: "10311001001000000", // IKPU kod - tasnif.soliq.uz dan oling
-        units: 796, // Dona (xizmat birligi)
-        vat_percent: 0,
-        package_code: "796", // Xizmat birligi kodi
+        code: "00702001001000001", // Django loyihasidagi kod
+        units: 241092,
+        vat_percent: 15,
+        package_code: "123456",
       },
     ],
   };
 };
 
-// Authentication middleware
+// Authentication middleware (Django loyihasiga mos)
 const paymeCheckToken = (req, res, next) => {
   try {
     const { id } = req.body;
@@ -151,12 +152,12 @@ const sendPaymeResponse = (res, result, id = null) => {
 
 // ================== PUBLIC ENDPOINTS ==================
 
-// Fayl uchun Payme link yaratish
+// Fayl uchun Payme link yaratish (Django loyihasiga mos)
 router.post("/get-payme-link", async (req, res) => {
   try {
-    const { orderId, amount } = req.body;
+    const { orderId, amount, returnUrl } = req.body;
 
-    console.log("Payme link so'rovi:", { orderId, amount });
+    console.log("Payme link so'rovi:", { orderId, amount, returnUrl });
 
     if (!orderId || !amount) {
       return res.json({
@@ -181,9 +182,12 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    // URL yaratish (detail obyektisiz)
+    // Django loyihasidagi kabi URL yaratish
+    const callbackUrl = `${req.protocol}://${req.get(
+      "host"
+    )}/api/payme/updates/`;
     const r = base64.encode(
-      `m=${merchantId};ac.order_id=${orderId};a=${amount}`
+      `m=${merchantId};ac.order_id=${orderId};a=${amount};c=${callbackUrl}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
@@ -193,10 +197,10 @@ router.post("/get-payme-link", async (req, res) => {
     res.json({
       status: "success",
       data: {
-        link: paymeLink,
+        payment_link: paymeLink, // Django loyihasidagi kabi
         amount: amount,
-        orderId: orderId,
-        merchantId: merchantId,
+        order_id: orderId,
+        merchant_id: merchantId,
       },
     });
   } catch (error) {
@@ -208,12 +212,12 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link yaratish
+// Scan file uchun Payme link yaratish (Django loyihasiga mos)
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
-    const { code, amount } = req.body;
+    const { code, amount, returnUrl } = req.body;
 
-    console.log("Scan Payme link so'rovi:", { code, amount });
+    console.log("Scan Payme link so'rovi:", { code, amount, returnUrl });
 
     if (!code || !amount) {
       return res.json({
@@ -238,9 +242,12 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
 
-    // URL yaratish (detail obyektisiz)
+    // Django loyihasidagi kabi URL yaratish
+    const callbackUrl = `${req.protocol}://${req.get(
+      "host"
+    )}/api/payme/updates/`;
     const r = base64.encode(
-      `m=${merchantId};ac.order_id=${scanFile._id};a=${amount}`
+      `m=${merchantId};ac.order_id=${scanFile._id};a=${amount};c=${callbackUrl}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
@@ -248,9 +255,9 @@ router.post("/get-scan-payme-link", async (req, res) => {
     res.json({
       status: "success",
       data: {
-        link: paymeLink,
+        payment_link: paymeLink, // Django loyihasidagi kabi
         amount: amount,
-        orderId: scanFile._id,
+        order_id: scanFile._id,
       },
     });
   } catch (error) {
@@ -262,47 +269,10 @@ router.post("/get-scan-payme-link", async (req, res) => {
   }
 });
 
-// To'lov holatini tekshirish
-router.post("/check-payment-status", async (req, res) => {
-  try {
-    const { order_id } = req.body;
+// ================== PAYME WEBHOOK (Django loyihasiga mos) ==================
 
-    const payment = await paidModel.findOne({
-      $or: [
-        { "serviceData._id": order_id },
-        { "serviceData.fileUrl": order_id },
-      ],
-      status: "paid",
-    });
-
-    if (!payment) {
-      return res.json({
-        status: "error",
-        message: "To'lov topilmadi yoki hali to'lanmagan",
-      });
-    }
-
-    res.json({
-      status: "success",
-      message: "To'lov muvaffaqiyatli amalga oshirilgan",
-      data: {
-        amount: payment.amount,
-        date: payment.date,
-        paymentMethod: payment.paymeTransactionId ? "payme" : "click",
-      },
-    });
-  } catch (error) {
-    console.error("To'lov holatini tekshirishda xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
-  }
-});
-
-// ================== PAYME WEBHOOK ==================
-
-router.post("/", paymeCheckToken, async (req, res) => {
+// Django loyihasidagi `/api/v1/payme/updates/` endpoint
+router.post("/updates", paymeCheckToken, async (req, res) => {
   try {
     const { method, params, id } = req.body;
 
@@ -330,7 +300,7 @@ router.post("/", paymeCheckToken, async (req, res) => {
         );
     }
   } catch (error) {
-    console.error("Payme endpoint error:", error);
+    console.error("Payme webhook error:", error);
     return sendPaymeError(
       res,
       PaymeError.CantDoOperation,
@@ -340,9 +310,9 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// ================== WEBHOOK METHODS ==================
+// ================== WEBHOOK METHODS (Django loyihasiga mos) ==================
 
-// 1. CheckPerformTransaction
+// 1. CheckPerformTransaction (Django loyihasiga mos)
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
@@ -448,11 +418,12 @@ async function checkPerformTransaction(req, res, params, id) {
       }
     }
 
-    // Detail obyektini yaratish
+    // Django loyihasidagi kabi detail obyektini yaratish
     const serviceData = uploadedFile || scannedFile;
     const title = uploadedFile
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
+
     const detail = createDetailObject(amount, title);
 
     console.log("CheckPerformTransaction - All validations passed");
@@ -470,7 +441,7 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CheckTransaction
+// 2. CheckTransaction (Django loyihasiga mos)
 async function checkTransaction(req, res, params, id) {
   try {
     console.log("CheckTransaction called with ID:", params.id);
@@ -491,7 +462,7 @@ async function checkTransaction(req, res, params, id) {
 
     console.log("CheckTransaction found:", transaction.paymeTransactionId);
 
-    // Detail obyektini yaratish
+    // Django loyihasidagi kabi detail obyektini yaratish
     const title = transaction.serviceData.apparatId
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
@@ -520,7 +491,7 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction
+// 3. CreateTransaction (Django loyihasiga mos)
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -575,7 +546,7 @@ async function createTransaction(req, res, params, id) {
     if (existingTransaction) {
       console.log("Same transaction ID exists, returning same response");
 
-      // Detail obyektini yaratish
+      // Django loyihasidagi kabi detail obyektini yaratish
       const title = existingTransaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -659,7 +630,7 @@ async function createTransaction(req, res, params, id) {
 
     console.log("New transaction created:", newTransaction._id);
 
-    // Detail obyektini yaratish
+    // Django loyihasidagi kabi detail obyektini yaratish
     const title = uploadedFile
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
@@ -681,7 +652,7 @@ async function createTransaction(req, res, params, id) {
   }
 }
 
-// 4. PerformTransaction
+// 4. PerformTransaction (Django loyihasiga mos)
 async function performTransaction(req, res, params, id) {
   try {
     const currentTime = Date.now();
@@ -709,7 +680,7 @@ async function performTransaction(req, res, params, id) {
         );
       }
 
-      // Detail obyektini yaratish
+      // Django loyihasidagi kabi detail obyektini yaratish
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -757,7 +728,7 @@ async function performTransaction(req, res, params, id) {
       { new: true }
     );
 
-    // Statistikani yangilash
+    // Django loyihasidagi kabi order ni yangilash
     if (transaction.serviceData.apparatId) {
       await updateStatistics(
         transaction.serviceData.apparatId,
@@ -765,7 +736,7 @@ async function performTransaction(req, res, params, id) {
       );
     }
 
-    // Socket.io xabar
+    // Socket.io xabar (Django loyihasida signal ishlatiladi)
     req.app.get("io").emit("tolovMuvaffaqiyatli", {
       fileId: transaction.serviceData._id,
       apparatId: transaction.serviceData.apparatId,
@@ -774,7 +745,7 @@ async function performTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
-    // Detail obyektini yaratish
+    // Django loyihasidagi kabi detail obyektini yaratish
     const title = transaction.serviceData.apparatId
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
@@ -796,7 +767,7 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 5. CancelTransaction
+// 5. CancelTransaction (Django loyihasiga mos)
 async function cancelTransaction(req, res, params, id) {
   try {
     const transaction = await paidModel.findOne({
@@ -816,7 +787,7 @@ async function cancelTransaction(req, res, params, id) {
 
     // Agar tranzaksiya allaqachon bekor qilingan bo'lsa
     if (transaction.status === "cancelled") {
-      // Detail obyektini yaratish
+      // Django loyihasidagi kabi detail obyektini yaratish
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -849,7 +820,7 @@ async function cancelTransaction(req, res, params, id) {
         { new: true }
       );
 
-      // Agar to'langan tranzaksiya bekor qilinsa, statistikani qaytarish
+      // Django loyihasidagi kabi order ni qaytarish
       if (wasCompleted && transaction.serviceData.apparatId) {
         await reverseStatistics(
           transaction.serviceData.apparatId,
@@ -865,7 +836,7 @@ async function cancelTransaction(req, res, params, id) {
         state = PaymeTransactionState.PendingCanceled; // -1
       }
 
-      // Detail obyektini yaratish
+      // Django loyihasidagi kabi detail obyektini yaratish
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -896,7 +867,7 @@ async function cancelTransaction(req, res, params, id) {
   }
 }
 
-// 6. GetStatement
+// 6. GetStatement (Django loyihasiga mos)
 async function getStatement(req, res, params, id) {
   try {
     const { from, to } = params;
@@ -910,7 +881,7 @@ async function getStatement(req, res, params, id) {
       .sort({ paymeCreateTime: 1 });
 
     const result = transactions.map((transaction) => {
-      // Detail obyektini yaratish
+      // Django loyihasidagi kabi detail obyektini yaratish
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
