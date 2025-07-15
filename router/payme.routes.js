@@ -181,18 +181,9 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    // Detail obyektini yaratish
-    const detail = createDetailObject(
-      amount,
-      "Vending apparat chop etish xizmati"
-    );
-
-    console.log("Detail obyekti:", JSON.stringify(detail, null, 2));
-
+    // URL yaratish (detail obyektisiz)
     const r = base64.encode(
-      `m=${merchantId};ac.order_id=${orderId};a=${amount};c=${JSON.stringify(
-        detail
-      )}`
+      `m=${merchantId};ac.order_id=${orderId};a=${amount}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
@@ -247,15 +238,9 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
 
-    // Detail obyektini yaratish
-    const detail = createDetailObject(amount, "Scan fayl chop etish xizmati");
-
-    console.log("Scan Detail obyekti:", JSON.stringify(detail, null, 2));
-
+    // URL yaratish (detail obyektisiz)
     const r = base64.encode(
-      `m=${merchantId};ac.order_id=${
-        scanFile._id
-      };a=${amount};c=${JSON.stringify(detail)}`
+      `m=${merchantId};ac.order_id=${scanFile._id};a=${amount}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
