@@ -1,4 +1,4 @@
-// router/payme.routes.js - TUZATILGAN VERSIYA
+// router/payme.routes.js - TO'LIQ TUZATILGAN VERSIYA
 import express from "express";
 import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
@@ -11,21 +11,21 @@ import base64 from "base-64";
 
 const router = express.Router();
 
-// YANGILANGAN ERROR KODLAR - Payme spetsifikatsiyasiga mos
+// Payme error kodlari
 const PaymeError = {
-  InvalidAmount: -31001, // Noto'g'ri summa
-  InvalidAccount: -31050, // Noto'g'ri account
-  CantDoOperation: -31008, // Operatsiya bajarib bo'lmaydi
-  TransactionNotFound: -31003, // Tranzaksiya topilmadi
-  InvalidAuthorization: -32504, // Avtorizatsiya xatoligi
-  AlreadyDone: -31060, // Allaqachon to'langan
-  Pending: -31050, // Kutish holatida
+  InvalidAmount: -31001,
+  InvalidAccount: -31050,
+  CantDoOperation: -31008,
+  TransactionNotFound: -31003,
+  InvalidAuthorization: -32504,
+  AlreadyDone: -31060,
+  Pending: -31050,
 };
 
-// YANGILANGAN: Summa chegaralari - test environment uchun
+// Summa chegaralari
 const PAYMENT_LIMITS = {
-  MIN_AMOUNT: 100, // Minimum 1 som (100 tiyin)
-  MAX_AMOUNT: 50000000, // Maksimum 500,000 som (50,000,000 tiyin)
+  MIN_AMOUNT: 100, // 1 som
+  MAX_AMOUNT: 50000000, // 500,000 som
 };
 
 // Payme metodlari
@@ -46,7 +46,28 @@ const PaymeTransactionState = {
   PaidCanceled: -2,
 };
 
-// Authentication - o'zgartirilmadi
+// Detail obyektini yaratish funksiyasi
+const createDetailObject = (
+  amount,
+  title = "Vending apparat chop etish xizmati"
+) => {
+  return {
+    receipt_type: 0,
+    items: [
+      {
+        title: title,
+        price: amount,
+        count: 1,
+        code: "10311001001000000", // IKPU kod - tasnif.soliq.uz dan oling
+        units: 796, // Dona (xizmat birligi)
+        vat_percent: 0,
+        package_code: "796", // Xizmat birligi kodi
+      },
+    ],
+  };
+};
+
+// Authentication middleware
 const paymeCheckToken = (req, res, next) => {
   try {
     const { id } = req.body;
@@ -108,7 +129,7 @@ const paymeCheckToken = (req, res, next) => {
   }
 };
 
-// Helper functions - o'zgartirilmadi
+// Helper functions
 const sendPaymeError = (res, code, message, id = null) => {
   return res.json({
     jsonrpc: "2.0",
@@ -128,10 +149,14 @@ const sendPaymeResponse = (res, result, id = null) => {
   });
 };
 
-// QR kod va link generatsiya - o'zgartirilmadi
+// ================== PUBLIC ENDPOINTS ==================
+
+// Fayl uchun Payme link yaratish
 router.post("/get-payme-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
+
+    console.log("Payme link so'rovi:", { orderId, amount });
 
     if (!orderId || !amount) {
       return res.json({
@@ -141,35 +166,38 @@ router.post("/get-payme-link", async (req, res) => {
     }
 
     const uploadedFile = await File.findById(orderId);
-    const scannedFile = await scanFileModel.findById(orderId);
-
-    if (!uploadedFile && !scannedFile) {
+    if (!uploadedFile) {
       return res.json({
         status: "error",
         message: "Bunday fayl topilmadi",
       });
     }
 
-  const detail = {
-      receipt_type: 0,
-      items: [
-        {
-          title: "Vending apparat orqali hujjat chop etish", // Aniq xizmat nomi
-          price: amount,
-          count: 1,
-          code: "10311001001000000", // Chop etish xizmati kodi
-          units: 796,
-          vat_percent: 0,
-          package_code: "796"
-        }
-      ]
-    };
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+    if (!merchantId || merchantId.length !== 24) {
+      return res.json({
+        status: "error",
+        message: "Merchant ID noto'g'ri formatda",
+      });
+    }
+
+    // Detail obyektini yaratish
+    const detail = createDetailObject(
+      amount,
+      "Vending apparat chop etish xizmati"
+    );
+
+    console.log("Detail obyekti:", JSON.stringify(detail, null, 2));
 
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount};c=${JSON.stringify(detail)}`
+      `m=${merchantId};ac.order_id=${orderId};a=${amount};c=${JSON.stringify(
+        detail
+      )}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
+
+    console.log("Yaratilgan link:", paymeLink);
 
     res.json({
       status: "success",
@@ -177,6 +205,7 @@ router.post("/get-payme-link", async (req, res) => {
         link: paymeLink,
         amount: amount,
         orderId: orderId,
+        merchantId: merchantId,
       },
     });
   } catch (error) {
@@ -188,9 +217,12 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
+// Scan file uchun Payme link yaratish
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
+
+    console.log("Scan Payme link so'rovi:", { code, amount });
 
     if (!code || !amount) {
       return res.json({
@@ -206,23 +238,24 @@ router.post("/get-scan-payme-link", async (req, res) => {
         message: "Bunday kod topilmadi",
       });
     }
-    const detail = {
-      receipt_type: 0,
-      items: [
-        {
-          title: "Vending apparat orqali hujjat chop etish", // Aniq xizmat nomi
-          price: amount,
-          count: 1,
-          code: "10311001001000000", // Chop etish xizmati kodi
-          units: 796,
-          vat_percent: 0,
-          package_code: "796"
-        }
-      ]
-    };
+
+    const merchantId = process.env.PAYME_MERCHANT_ID;
+    if (!merchantId || merchantId.length !== 24) {
+      return res.json({
+        status: "error",
+        message: "Merchant ID noto'g'ri formatda",
+      });
+    }
+
+    // Detail obyektini yaratish
+    const detail = createDetailObject(amount, "Scan fayl chop etish xizmati");
+
+    console.log("Scan Detail obyekti:", JSON.stringify(detail, null, 2));
 
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${scanFile._id};a=${amount};c=${JSON.stringify(detail)}`
+      `m=${merchantId};ac.order_id=${
+        scanFile._id
+      };a=${amount};c=${JSON.stringify(detail)}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
@@ -244,6 +277,7 @@ router.post("/get-scan-payme-link", async (req, res) => {
   }
 });
 
+// To'lov holatini tekshirish
 router.post("/check-payment-status", async (req, res) => {
   try {
     const { order_id } = req.body;
@@ -281,7 +315,8 @@ router.post("/check-payment-status", async (req, res) => {
   }
 });
 
-// ASOSIY PAYME WEBHOOK
+// ================== PAYME WEBHOOK ==================
+
 router.post("/", paymeCheckToken, async (req, res) => {
   try {
     const { method, params, id } = req.body;
@@ -320,14 +355,16 @@ router.post("/", paymeCheckToken, async (req, res) => {
   }
 });
 
-// 1. CheckPerformTransaction - TUZATILGAN
+// ================== WEBHOOK METHODS ==================
+
+// 1. CheckPerformTransaction
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
 
     console.log("CheckPerformTransaction:", { account, amount });
 
-    // 1. KRITIK: Amount validatsiyasi (tiyin formatida keladi)
+    // Amount validatsiyasi
     if (!amount || typeof amount !== "number" || amount <= 0) {
       console.log("Invalid amount - not a valid number");
       return sendPaymeError(
@@ -338,14 +375,12 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 2. KRITIK: Amount chegaralarini tekshirish (tiyin formatida)
+    // Amount chegaralarini tekshirish
     if (
       amount < PAYMENT_LIMITS.MIN_AMOUNT ||
       amount > PAYMENT_LIMITS.MAX_AMOUNT
     ) {
-      console.log(
-        `Amount out of range: ${amount} tiyin. Range: ${PAYMENT_LIMITS.MIN_AMOUNT}-${PAYMENT_LIMITS.MAX_AMOUNT}`
-      );
+      console.log(`Amount out of range: ${amount} tiyin`);
       return sendPaymeError(
         res,
         PaymeError.InvalidAmount,
@@ -354,7 +389,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 3. Account parametrini tekshirish
+    // Account validatsiyasi
     if (!account || !account.order_id) {
       console.log("Invalid account - no order_id");
       return sendPaymeError(
@@ -365,7 +400,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 4. Account format tekshirish (ObjectId formatda bo'lishi kerak)
+    // ObjectId format tekshirish
     if (!isValidObjectId(account.order_id)) {
       console.log("Invalid account - not valid ObjectId format");
       return sendPaymeError(
@@ -376,7 +411,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 5. Order mavjudligini tekshirish
+    // Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
 
@@ -390,8 +425,7 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // 6. TUZATILDI: Mavjud tranzaksiyalarni tekshirish
-    // Hamma Payme tranzaksiyalar (vaqt chegarasisiz)
+    // Mavjud aktiv tranzaksiyalarni tekshirish
     const existingPayments = await paidModel.find({
       $or: [
         { "serviceData._id": account.order_id },
@@ -400,9 +434,6 @@ async function checkPerformTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
-    console.log("Existing Payme payments for order:", existingPayments.length);
-
-    // Aktiv (pending yoki paid) tranzaksiyalarni tekshirish
     const activePayments = existingPayments.filter(
       (payment) => payment.status === "pending" || payment.status === "paid"
     );
@@ -432,16 +463,29 @@ async function checkPerformTransaction(req, res, params, id) {
       }
     }
 
-    // 7. Agar hamma validatsiya o'tgan bo'lsa
+    // Detail obyektini yaratish
+    const serviceData = uploadedFile || scannedFile;
+    const title = uploadedFile
+      ? "Vending apparat chop etish xizmati"
+      : "Scan fayl chop etish xizmati";
+    const detail = createDetailObject(amount, title);
+
     console.log("CheckPerformTransaction - All validations passed");
-    return sendPaymeResponse(res, { allow: true }, id);
+    return sendPaymeResponse(
+      res,
+      {
+        allow: true,
+        detail: detail,
+      },
+      id
+    );
   } catch (error) {
     console.error("CheckPerformTransaction error:", error);
     return sendPaymeError(res, PaymeError.InvalidAccount, "Check error", id);
   }
 }
 
-// 2. CheckTransaction - TUZATILGAN
+// 2. CheckTransaction
 async function checkTransaction(req, res, params, id) {
   try {
     console.log("CheckTransaction called with ID:", params.id);
@@ -462,14 +506,20 @@ async function checkTransaction(req, res, params, id) {
 
     console.log("CheckTransaction found:", transaction.paymeTransactionId);
 
-    // KRITIK: transaction maydonida internal DB ID qaytarish
+    // Detail obyektini yaratish
+    const title = transaction.serviceData.apparatId
+      ? "Vending apparat chop etish xizmati"
+      : "Scan fayl chop etish xizmati";
+    const detail = createDetailObject(transaction.amount, title);
+
     const result = {
       create_time: transaction.paymeCreateTime,
       perform_time: transaction.paymePerformTime || 0,
       cancel_time: transaction.paymeCancelTime || 0,
-      transaction: transaction._id.toString(), // DB ID qaytarish
+      transaction: transaction._id.toString(),
       state: getTransactionState(transaction),
       reason: transaction.paymeReason || null,
+      detail: detail,
     };
 
     console.log("CheckTransaction result:", result);
@@ -485,7 +535,7 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction - TUZATILGAN
+// 3. CreateTransaction
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -496,7 +546,7 @@ async function createTransaction(req, res, params, id) {
       amount,
     });
 
-    // 1. KRITIK: Amount validatsiyasi
+    // Amount validatsiyasi
     if (!amount || typeof amount !== "number" || amount <= 0) {
       console.log("CreateTransaction - Invalid amount");
       return sendPaymeError(
@@ -507,7 +557,7 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 2. KRITIK: Amount chegaralarini tekshirish
+    // Amount chegaralarini tekshirish
     if (
       amount < PAYMENT_LIMITS.MIN_AMOUNT ||
       amount > PAYMENT_LIMITS.MAX_AMOUNT
@@ -521,7 +571,7 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 3. Account validatsiyasi
+    // Account validatsiyasi
     if (!account || !account.order_id || !isValidObjectId(account.order_id)) {
       console.log("CreateTransaction - Invalid account");
       return sendPaymeError(
@@ -532,25 +582,33 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 4. Aynan shu Payme transaction ID mavjudligini tekshirish
+    // Aynan shu transaction ID mavjudligini tekshirish
     let existingTransaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
     });
 
     if (existingTransaction) {
       console.log("Same transaction ID exists, returning same response");
+
+      // Detail obyektini yaratish
+      const title = existingTransaction.serviceData.apparatId
+        ? "Vending apparat chop etish xizmati"
+        : "Scan fayl chop etish xizmati";
+      const detail = createDetailObject(existingTransaction.amount, title);
+
       return sendPaymeResponse(
         res,
         {
           transaction: existingTransaction._id.toString(),
           state: getTransactionState(existingTransaction),
           create_time: existingTransaction.paymeCreateTime,
+          detail: detail,
         },
         id
       );
     }
 
-    // 5. Order mavjudligini tekshirish
+    // Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
@@ -565,7 +623,7 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 6. KRITIK: Shu order uchun aktiv Payme tranzaksiyalar bormi?
+    // Aktiv tranzaksiyalarni tekshirish
     const existingPayments = await paidModel.find({
       $or: [
         { "serviceData._id": account.order_id },
@@ -574,9 +632,6 @@ async function createTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
-    console.log("Existing Payme payments for order:", existingPayments.length);
-
-    // Aktiv tranzaksiyalarni filter qilish
     const activePayments = existingPayments.filter(
       (payment) => payment.status === "pending" || payment.status === "paid"
     );
@@ -606,7 +661,7 @@ async function createTransaction(req, res, params, id) {
       }
     }
 
-    // 7. Yangi tranzaksiya yaratish
+    // Yangi tranzaksiya yaratish
     console.log("Creating new transaction for order");
     const newTransaction = await paidModel.create({
       paymeTransactionId: transactionId,
@@ -619,12 +674,19 @@ async function createTransaction(req, res, params, id) {
 
     console.log("New transaction created:", newTransaction._id);
 
+    // Detail obyektini yaratish
+    const title = uploadedFile
+      ? "Vending apparat chop etish xizmati"
+      : "Scan fayl chop etish xizmati";
+    const detail = createDetailObject(amount, title);
+
     return sendPaymeResponse(
       res,
       {
         transaction: newTransaction._id.toString(),
         state: PaymeTransactionState.Pending,
         create_time: newTransaction.paymeCreateTime,
+        detail: detail,
       },
       id
     );
@@ -634,7 +696,7 @@ async function createTransaction(req, res, params, id) {
   }
 }
 
-// 4. PerformTransaction - o'zgartirilmadi
+// 4. PerformTransaction
 async function performTransaction(req, res, params, id) {
   try {
     const currentTime = Date.now();
@@ -661,18 +723,26 @@ async function performTransaction(req, res, params, id) {
           id
         );
       }
+
+      // Detail obyektini yaratish
+      const title = transaction.serviceData.apparatId
+        ? "Vending apparat chop etish xizmati"
+        : "Scan fayl chop etish xizmati";
+      const detail = createDetailObject(transaction.amount, title);
+
       return sendPaymeResponse(
         res,
         {
           perform_time: transaction.paymePerformTime,
           transaction: transaction._id.toString(),
           state: PaymeTransactionState.Paid,
+          detail: detail,
         },
         id
       );
     }
 
-    // Vaqt tekshiruvi
+    // Vaqt tekshiruvi (12 daqiqa)
     const expirationTime =
       (currentTime - transaction.paymeCreateTime) / 60000 < 12;
     if (!expirationTime) {
@@ -693,12 +763,13 @@ async function performTransaction(req, res, params, id) {
     }
 
     // To'lovni amalga oshirish
-    await paidModel.findOneAndUpdate(
+    const updatedTransaction = await paidModel.findOneAndUpdate(
       { paymeTransactionId: params.id },
       {
         status: "paid",
         paymePerformTime: currentTime,
-      }
+      },
+      { new: true }
     );
 
     // Statistikani yangilash
@@ -718,12 +789,19 @@ async function performTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
+    // Detail obyektini yaratish
+    const title = transaction.serviceData.apparatId
+      ? "Vending apparat chop etish xizmati"
+      : "Scan fayl chop etish xizmati";
+    const detail = createDetailObject(transaction.amount, title);
+
     return sendPaymeResponse(
       res,
       {
         perform_time: currentTime,
         transaction: transaction._id.toString(),
         state: PaymeTransactionState.Paid,
+        detail: detail,
       },
       id
     );
@@ -733,7 +811,7 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 5. CancelTransaction - TUZATILGAN
+// 5. CancelTransaction
 async function cancelTransaction(req, res, params, id) {
   try {
     const transaction = await paidModel.findOne({
@@ -751,20 +829,27 @@ async function cancelTransaction(req, res, params, id) {
 
     const currentTime = Date.now();
 
-    // KRITIK: Agar tranzaksiya allaqachon bekor qilingan bo'lsa
+    // Agar tranzaksiya allaqachon bekor qilingan bo'lsa
     if (transaction.status === "cancelled") {
+      // Detail obyektini yaratish
+      const title = transaction.serviceData.apparatId
+        ? "Vending apparat chop etish xizmati"
+        : "Scan fayl chop etish xizmati";
+      const detail = createDetailObject(transaction.amount, title);
+
       return sendPaymeResponse(
         res,
         {
           cancel_time: transaction.paymeCancelTime,
           transaction: transaction._id.toString(),
           state: getTransactionState(transaction),
+          detail: detail,
         },
         id
       );
     }
 
-    // KRITIK: Faqat pending yoki paid tranzaksiyalarni bekor qilish mumkin
+    // Pending yoki paid tranzaksiyalarni bekor qilish
     if (transaction.status === "pending" || transaction.status === "paid") {
       const wasCompleted = transaction.status === "paid";
 
@@ -776,7 +861,7 @@ async function cancelTransaction(req, res, params, id) {
           paymeReason: params.reason,
           paymeCancelTime: currentTime,
         },
-        { new: true } // Yangilangan dokumentni qaytarish
+        { new: true }
       );
 
       // Agar to'langan tranzaksiya bekor qilinsa, statistikani qaytarish
@@ -787,7 +872,7 @@ async function cancelTransaction(req, res, params, id) {
         );
       }
 
-      // KRITIK: State to'g'ri hisoblash
+      // State to'g'ri hisoblash
       let state;
       if (wasCompleted) {
         state = PaymeTransactionState.PaidCanceled; // -2
@@ -795,12 +880,19 @@ async function cancelTransaction(req, res, params, id) {
         state = PaymeTransactionState.PendingCanceled; // -1
       }
 
+      // Detail obyektini yaratish
+      const title = transaction.serviceData.apparatId
+        ? "Vending apparat chop etish xizmati"
+        : "Scan fayl chop etish xizmati";
+      const detail = createDetailObject(transaction.amount, title);
+
       return sendPaymeResponse(
         res,
         {
           cancel_time: currentTime,
           transaction: transaction._id.toString(),
           state: state,
+          detail: detail,
         },
         id
       );
@@ -819,7 +911,7 @@ async function cancelTransaction(req, res, params, id) {
   }
 }
 
-// 6. GetStatement - o'zgartirilmadi
+// 6. GetStatement
 async function getStatement(req, res, params, id) {
   try {
     const { from, to } = params;
@@ -832,20 +924,29 @@ async function getStatement(req, res, params, id) {
       })
       .sort({ paymeCreateTime: 1 });
 
-    const result = transactions.map((transaction) => ({
-      id: transaction.paymeTransactionId,
-      time: transaction.paymeCreateTime,
-      amount: transaction.amount,
-      account: {
-        order_id: transaction.serviceData._id,
-      },
-      create_time: transaction.paymeCreateTime,
-      perform_time: transaction.paymePerformTime || 0,
-      cancel_time: transaction.paymeCancelTime || 0,
-      transaction: transaction._id.toString(),
-      state: getTransactionState(transaction),
-      reason: transaction.paymeReason || null,
-    }));
+    const result = transactions.map((transaction) => {
+      // Detail obyektini yaratish
+      const title = transaction.serviceData.apparatId
+        ? "Vending apparat chop etish xizmati"
+        : "Scan fayl chop etish xizmati";
+      const detail = createDetailObject(transaction.amount, title);
+
+      return {
+        id: transaction.paymeTransactionId,
+        time: transaction.paymeCreateTime,
+        amount: transaction.amount,
+        account: {
+          order_id: transaction.serviceData._id,
+        },
+        create_time: transaction.paymeCreateTime,
+        perform_time: transaction.paymePerformTime || 0,
+        cancel_time: transaction.paymeCancelTime || 0,
+        transaction: transaction._id.toString(),
+        state: getTransactionState(transaction),
+        reason: transaction.paymeReason || null,
+        detail: detail,
+      };
+    });
 
     return sendPaymeResponse(res, { transactions: result }, id);
   } catch (error) {
@@ -859,7 +960,8 @@ async function getStatement(req, res, params, id) {
   }
 }
 
-// Helper functions - o'zgartirilmadi
+// ================== HELPER FUNCTIONS ==================
+
 function isValidObjectId(str) {
   if (!str || typeof str !== "string") return false;
   return /^[0-9a-fA-F]{24}$/.test(str);
@@ -869,7 +971,6 @@ function getTransactionState(transaction) {
   if (transaction.status === "paid") {
     return PaymeTransactionState.Paid; // 2
   } else if (transaction.status === "cancelled") {
-    // KRITIK: Agar perform_time mavjud bo'lsa (ya'ni to'langan bo'lsa), PaidCanceled
     if (transaction.paymePerformTime && transaction.paymePerformTime > 0) {
       return PaymeTransactionState.PaidCanceled; // -2
     } else {
@@ -945,5 +1046,27 @@ async function reverseStatistics(apparatId, amount) {
     console.error("Statistikani qaytarishda xatolik:", error);
   }
 }
+
+// ================== TEST ENDPOINTS ==================
+
+// Test uchun detail obyektini ko'rish
+router.get("/test-detail", (req, res) => {
+  const detail = createDetailObject(5000, "Test chop etish xizmati");
+  res.json({
+    detail: detail,
+    encoded: JSON.stringify(detail),
+    base64: base64.encode(JSON.stringify(detail)),
+  });
+});
+
+// Test uchun merchant ID tekshirish
+router.get("/test-merchant", (req, res) => {
+  res.json({
+    merchantId: process.env.PAYME_MERCHANT_ID,
+    length: process.env.PAYME_MERCHANT_ID?.length,
+    testKey: process.env.PAYME_TEST_KEY,
+    isValidLength: process.env.PAYME_MERCHANT_ID?.length === 24,
+  });
+});
 
 export default router;
