@@ -150,8 +150,23 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
+  const detail = {
+      receipt_type: 0,
+      items: [
+        {
+          title: "Vending apparat orqali hujjat chop etish", // Aniq xizmat nomi
+          price: amount,
+          count: 1,
+          code: "10311001001000000", // Chop etish xizmati kodi
+          units: 796,
+          vat_percent: 0,
+          package_code: "796"
+        }
+      ]
+    };
+
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount}`
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount};c=${JSON.stringify(detail)}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
@@ -191,8 +206,23 @@ router.post("/get-scan-payme-link", async (req, res) => {
         message: "Bunday kod topilmadi",
       });
     }
+    const detail = {
+      receipt_type: 0,
+      items: [
+        {
+          title: "Vending apparat orqali hujjat chop etish", // Aniq xizmat nomi
+          price: amount,
+          count: 1,
+          code: "10311001001000000", // Chop etish xizmati kodi
+          units: 796,
+          vat_percent: 0,
+          package_code: "796"
+        }
+      ]
+    };
+
     const r = base64.encode(
-      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amount}`
+      `m=${process.env.PAYME_MERCHANT_ID};ac.order_id=${scanFile._id};a=${amount};c=${JSON.stringify(detail)}`
     );
 
     const paymeLink = `https://checkout.paycom.uz/${r}`;
