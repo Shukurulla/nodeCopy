@@ -208,11 +208,11 @@ bot.on("text", async (ctx) => {
 
         ctx.reply(
           `Siz "${apparat.nomi}" apparatini tanladingiz. Endi faylingizni yuklang.
-          Qabul qilinadigan fayl turlari:
-          - Hujjatlar: PDF, DOC, DOCX
-          - Jadval fayllari: XLS, XLSX
-          - Taqdimotlar: PPT, PPTX
-          - Rasmlar: PNG, JPEG, JPG
+Qabul qilinadigan fayl turlari:
+    ✅ Hujjatlar: PDF, DOC, DOCX
+    ✅ Jadval fayllari: XLS, XLSX
+    ✅ Taqdimotlar: PPT, PPTX
+    ✅ Rasmlar: PNG, JPEG, JPG
         `
         );
       } else {
