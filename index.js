@@ -46,10 +46,24 @@ app.set("io", io);
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const allowedFileTypes = [
+  // PDF
   "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/msword",
+
+  // Word hujjatlari
+  "application/msword", // .doc
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+
+  // Excel hujjatlari
+  "application/vnd.ms-excel", // .xls
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+
+  // PowerPoint hujjatlari
+  "application/vnd.ms-powerpoint", // .ppt
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+
+  // Rasm turlari
+  "image/png", // .png
+  "image/jpeg", // .jpeg va .jpg
 ];
 
 const usersReadyToSendFiles = new Set();
@@ -193,7 +207,13 @@ bot.on("text", async (ctx) => {
         usersReadyToSendFiles.add(ctx.from.id);
 
         ctx.reply(
-          `Siz "${apparat.nomi}" apparatini tanladingiz. Endi faylingizni yuboring. Faqat quyidagi fayl turlari qabul qilinadi: PDF, DOCX, EXCEL.`
+          `Siz "${apparat.nomi}" apparatini tanladingiz. Endi faylingizni yuklang.
+          Qabul qilinadigan fayl turlari:
+          - Hujjatlar: PDF, DOC, DOCX
+          - Jadval fayllari: XLS, XLSX
+          - Taqdimotlar: PPT, PPTX
+          - Rasmlar: PNG, JPEG, JPG
+        `
         );
       } else {
         ctx.reply(

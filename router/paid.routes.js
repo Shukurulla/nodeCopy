@@ -41,5 +41,13 @@ router.put("/:id/status", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
+router.get("/delete-all", async (req, res) => {
+  try {
+    const findPaids = await paidModel.find();
+    for (let i = 0; i < findPaids.length; i++) {
+      await paidModel.findByIdAndDelete(findPaids[i]._id);
+    }
+    res.json({ status: "success", data: findPaids });
+  } catch (error) {}
+});
 export default router;
