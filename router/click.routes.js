@@ -179,8 +179,11 @@ router.post("/complete", async (req, res) => {
       amount: +amount,
       date: new Date(),
     });
-    await File.findByIdAndDelete(uploadedFile._id);
-    await scanFileModel.findByIdAndDelete(scannedFile._id);
+    if (uploadedFile) {
+      await File.findByIdAndDelete(uploadedFile._id);
+    } else {
+      await scanFileModel.findByIdAndDelete(scannedFile._id);
+    }
 
     // Yangi: To'lov statistikasini yangilash
     if (uploadedFile) {
