@@ -149,8 +149,6 @@ router.post("/complete", async (req, res) => {
     const scannedFile = await scanFileModel.findById(merchant_trans_id);
     const serviceData = uploadedFile || scannedFile;
 
-    console.log(serviceData);
-
     if (!serviceData) {
       return sendClickResponse(
         {
@@ -231,6 +229,15 @@ router.post("/complete", async (req, res) => {
         }
       }
 
+      // Socketga to'lov haqida xabar yuborish
+      req.app.get("io").emit("tolovMuvaffaqiyatli", {
+        fileId: merchant_trans_id,
+        apparatId,
+        amount: +amount,
+        qogozSoni: 1,
+      });
+    }
+    if (scannedFile) {
       // Socketga to'lov haqida xabar yuborish
       req.app.get("io").emit("tolovMuvaffaqiyatli", {
         fileId: merchant_trans_id,
