@@ -486,7 +486,7 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction - ASOSIY MUAMMO TUZATILDI
+// 3. CreateTransaction - CRITICAL BUG FIX
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -534,33 +534,35 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 1. Aynan shu transaction ID mavjudligini tekshirish (birinchi navbatda)
-    let existingTransaction = await paidModel.findOne({
+    // 1. BIRINCHI: Aynan shu transaction ID mavjudligini tekshirish
+    const existingTransactionById = await paidModel.findOne({
       paymeTransactionId: transactionId,
       paymentMethod: "payme",
     });
 
-    if (existingTransaction) {
-      console.log("Same transaction ID exists, returning existing transaction");
+    if (existingTransactionById) {
+      console.log(
+        "CreateTransaction - Same transaction ID exists, returning existing transaction"
+      );
 
-      const title = existingTransaction.serviceData.apparatId
+      const title = existingTransactionById.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
-      const detail = createDetailObject(existingTransaction.amount, title);
+      const detail = createDetailObject(existingTransactionById.amount, title);
 
       return sendPaymeResponse(
         res,
         {
-          transaction: existingTransaction._id.toString(),
-          state: getTransactionState(existingTransaction),
-          create_time: existingTransaction.paymeCreateTime,
+          transaction: existingTransactionById._id.toString(),
+          state: getTransactionState(existingTransactionById),
+          create_time: existingTransactionById.paymeCreateTime,
           detail: detail,
         },
         id
       );
     }
 
-    // 2. Order mavjudligini tekshirish
+    // 2. IKKINCHI: Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
@@ -575,20 +577,25 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // 3. ASOSIY TUZATISH: Bu order uchun har qanday aktiv tranzaksiya borligini tekshirish
-    const existingActiveTransaction = await paidModel.findOne({
+    // 3. UCHINCHI: CRITICAL - Bu order uchun aktiv tranzaksiyalarni tekshirish
+    const existingActiveTransactions = await paidModel.find({
       "serviceData._id": account.order_id,
       paymentMethod: "payme",
       status: { $in: ["pending", "paid"] }, // Aktiv tranzaksiyalar
     });
 
-    if (existingActiveTransaction) {
+    console.log(
+      `CreateTransaction - Found ${existingActiveTransactions.length} active transactions for order ${account.order_id}`
+    );
+
+    if (existingActiveTransactions.length > 0) {
+      const activeTransaction = existingActiveTransactions[0];
       console.log(
-        `BLOCKING: Active transaction found for order ${account.order_id}: Status = ${existingActiveTransaction.status}, TransactionId = ${existingActiveTransaction.paymeTransactionId}`
+        `CreateTransaction - BLOCKING: Active transaction found! Status = ${activeTransaction.status}, TransactionId = ${activeTransaction.paymeTransactionId}`
       );
 
-      if (existingActiveTransaction.status === "paid") {
-        console.log("CreateTransaction - Order already paid, returning error");
+      if (activeTransaction.status === "paid") {
+        console.log("CreateTransaction - ERROR: Order already paid");
         return sendPaymeError(
           res,
           PaymeError.InvalidAccount,
@@ -597,9 +604,9 @@ async function createTransaction(req, res, params, id) {
         );
       }
 
-      if (existingActiveTransaction.status === "pending") {
+      if (activeTransaction.status === "pending") {
         console.log(
-          "CreateTransaction - Order has pending transaction, returning error"
+          "CreateTransaction - ERROR: Another pending transaction exists"
         );
         return sendPaymeError(
           res,
@@ -610,9 +617,9 @@ async function createTransaction(req, res, params, id) {
       }
     }
 
-    // 4. Yangi tranzaksiya yaratish (faqat aktiv tranzaksiya yo'q bo'lsa)
+    // 4. YAKUNIY: Yangi tranzaksiya yaratish (faqat aktiv tranzaksiya yo'q bo'lsa)
     console.log(
-      "Creating new transaction for order - no active transactions found"
+      "CreateTransaction - SUCCESS: Creating new transaction - no active transactions found"
     );
     const newTransaction = await paidModel.create({
       paymeTransactionId: transactionId,
@@ -623,7 +630,10 @@ async function createTransaction(req, res, params, id) {
       paymentMethod: "payme",
     });
 
-    console.log("New transaction created:", newTransaction._id);
+    console.log(
+      "CreateTransaction - New transaction created:",
+      newTransaction._id
+    );
 
     // Detail obyektini yaratish
     const title = uploadedFile
@@ -1089,6 +1099,102 @@ async function reverseStatistics(apparatId, amount) {
 }
 
 // ================== TEST ENDPOINTS ==================
+
+// Test uchun order va tranzaksiyalar holatini tekshirish
+router.get("/debug-order/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    console.log("DEBUG: Checking order", orderId);
+
+    // Order tekshirish
+    const uploadedFile = await File.findById(orderId);
+    const scannedFile = await scanFileModel.findById(orderId);
+
+    // Bu order bilan bog'liq barcha tranzaksiyalar
+    const allTransactions = await paidModel.find({
+      "serviceData._id": orderId,
+      paymentMethod: "payme",
+    });
+
+    // Faqat aktiv tranzaksiyalar
+    const activeTransactions = await paidModel.find({
+      "serviceData._id": orderId,
+      paymentMethod: "payme",
+      status: { $in: ["pending", "paid"] },
+    });
+
+    res.json({
+      orderId,
+      isValidObjectId: isValidObjectId(orderId),
+      order: {
+        uploadedFile: !!uploadedFile,
+        scannedFile: !!scannedFile,
+        data: uploadedFile || scannedFile,
+      },
+      transactions: {
+        total: allTransactions.length,
+        active: activeTransactions.length,
+        all: allTransactions.map((t) => ({
+          id: t._id,
+          paymeTransactionId: t.paymeTransactionId,
+          status: t.status,
+          amount: t.amount,
+          createTime: t.paymeCreateTime,
+        })),
+        activeOnly: activeTransactions.map((t) => ({
+          id: t._id,
+          paymeTransactionId: t.paymeTransactionId,
+          status: t.status,
+          amount: t.amount,
+          createTime: t.paymeCreateTime,
+        })),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Tranzaksiya holatini to'liq tekshirish
+router.get("/debug-transaction/:transactionId", async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    console.log("DEBUG: Checking transaction", transactionId);
+
+    const transaction = await paidModel.findOne({
+      paymeTransactionId: transactionId,
+      paymentMethod: "payme",
+    });
+
+    if (!transaction) {
+      return res.json({
+        transactionId,
+        found: false,
+        message: "Transaction not found in database",
+      });
+    }
+
+    res.json({
+      transactionId,
+      found: true,
+      data: {
+        id: transaction._id,
+        paymeTransactionId: transaction.paymeTransactionId,
+        status: transaction.status,
+        amount: transaction.amount,
+        orderId: transaction.serviceData._id,
+        createTime: transaction.paymeCreateTime,
+        performTime: transaction.paymePerformTime,
+        cancelTime: transaction.paymeCancelTime,
+        state: getTransactionState(transaction),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Test uchun detail obyektini ko'rish
 router.get("/test-detail", (req, res) => {
