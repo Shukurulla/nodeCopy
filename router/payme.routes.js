@@ -418,7 +418,9 @@ async function checkPerformTransaction(req, res, params, id) {
 
     const detail = createDetailObject(amount, title);
 
-    console.log("CheckPerformTransaction - All validations passed - Allow: true");
+    console.log(
+      "CheckPerformTransaction - All validations passed - Allow: true"
+    );
     return sendPaymeResponse(
       res,
       {
@@ -484,7 +486,7 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction - TO'LIQMAN QAYTA YOZILDI
+// 3. CreateTransaction - ASOSIY MUAMMO TUZATILDI
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
@@ -532,7 +534,7 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Aynan shu transaction ID mavjudligini tekshirish
+    // 1. Aynan shu transaction ID mavjudligini tekshirish (birinchi navbatda)
     let existingTransaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
       paymentMethod: "payme",
@@ -558,7 +560,7 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Order mavjudligini tekshirish
+    // 2. Order mavjudligini tekshirish
     const uploadedFile = await File.findById(account.order_id);
     const scannedFile = await scanFileModel.findById(account.order_id);
     const serviceData = uploadedFile || scannedFile;
@@ -573,21 +575,20 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Bu order uchun boshqa aktiv tranzaksiyalarni tekshirish
+    // 3. ASOSIY TUZATISH: Bu order uchun har qanday aktiv tranzaksiya borligini tekshirish
     const existingActiveTransaction = await paidModel.findOne({
       "serviceData._id": account.order_id,
       paymentMethod: "payme",
-      status: { $in: ["pending", "paid"] },
-      paymeTransactionId: { $ne: transactionId }, // Hozirgi tranzaksiyani hisobga olmaymiz
+      status: { $in: ["pending", "paid"] }, // Aktiv tranzaksiyalar
     });
 
     if (existingActiveTransaction) {
       console.log(
-        `Active transaction exists for this order: Status = ${existingActiveTransaction.status}`
+        `BLOCKING: Active transaction found for order ${account.order_id}: Status = ${existingActiveTransaction.status}, TransactionId = ${existingActiveTransaction.paymeTransactionId}`
       );
 
       if (existingActiveTransaction.status === "paid") {
-        console.log("CreateTransaction - Order already paid");
+        console.log("CreateTransaction - Order already paid, returning error");
         return sendPaymeError(
           res,
           PaymeError.InvalidAccount,
@@ -597,7 +598,9 @@ async function createTransaction(req, res, params, id) {
       }
 
       if (existingActiveTransaction.status === "pending") {
-        console.log("CreateTransaction - Order has pending transaction");
+        console.log(
+          "CreateTransaction - Order has pending transaction, returning error"
+        );
         return sendPaymeError(
           res,
           PaymeError.InvalidAccount,
@@ -607,8 +610,10 @@ async function createTransaction(req, res, params, id) {
       }
     }
 
-    // Yangi tranzaksiya yaratish
-    console.log("Creating new transaction for order");
+    // 4. Yangi tranzaksiya yaratish (faqat aktiv tranzaksiya yo'q bo'lsa)
+    console.log(
+      "Creating new transaction for order - no active transactions found"
+    );
     const newTransaction = await paidModel.create({
       paymeTransactionId: transactionId,
       serviceData: serviceData,
@@ -642,13 +647,9 @@ async function createTransaction(req, res, params, id) {
   }
 }
 
-// 4. PerformTransaction - TUZATILDI
+// 4. PerformTransaction - CONSISTENCY TUZATILDI
 async function performTransaction(req, res, params, id) {
   try {
-    const currentTime = Date.now();
-
-    console.log("PerformTransaction called with ID:", params.id);
-
     const transaction = await paidModel.findOne({
       paymeTransactionId: params.id,
       paymentMethod: "payme",
@@ -664,21 +665,26 @@ async function performTransaction(req, res, params, id) {
       );
     }
 
-    console.log(`PerformTransaction - Found transaction, status: ${transaction.status}`);
+    console.log(
+      `PerformTransaction - Found transaction, status: ${transaction.status}`
+    );
 
-    // Agar tranzaksiya allaqachon to'langan bo'lsa
+    // Agar tranzaksiya allaqachon to'langan bo'lsa - BIR XIL JAVOB QAYTARISH
     if (transaction.status === "paid") {
-      console.log("PerformTransaction - Transaction already performed");
-      
+      console.log(
+        "PerformTransaction - Transaction already performed, returning same response"
+      );
+
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
       const detail = createDetailObject(transaction.amount, title);
 
+      // BIR XIL JAVOB - transaction.paymePerformTime ishlatish
       return sendPaymeResponse(
         res,
         {
-          perform_time: transaction.paymePerformTime,
+          perform_time: transaction.paymePerformTime, // CONSISTENT
           transaction: transaction._id.toString(),
           state: PaymeTransactionState.Paid,
           detail: detail,
@@ -689,7 +695,10 @@ async function performTransaction(req, res, params, id) {
 
     // Faqat pending tranzaksiyalarni perform qilish mumkin
     if (transaction.status !== "pending") {
-      console.log("PerformTransaction - Can't perform transaction, status:", transaction.status);
+      console.log(
+        "PerformTransaction - Can't perform transaction, status:",
+        transaction.status
+      );
       return sendPaymeError(
         res,
         PaymeError.CantDoOperation,
@@ -699,12 +708,13 @@ async function performTransaction(req, res, params, id) {
     }
 
     // Vaqt tekshiruvi (12 daqiqa)
+    const currentTime = Date.now();
     const timeElapsed = (currentTime - transaction.paymeCreateTime) / 60000;
     console.log(`PerformTransaction - Time elapsed: ${timeElapsed} minutes`);
 
     if (timeElapsed >= 12) {
       console.log("PerformTransaction - Transaction expired, cancelling");
-      
+
       await paidModel.findOneAndUpdate(
         { paymeTransactionId: params.id },
         {
@@ -713,7 +723,7 @@ async function performTransaction(req, res, params, id) {
           paymeReason: 4, // Timeout
         }
       );
-      
+
       return sendPaymeError(
         res,
         PaymeError.CantDoOperation,
@@ -724,12 +734,12 @@ async function performTransaction(req, res, params, id) {
 
     // To'lovni amalga oshirish
     console.log("PerformTransaction - Performing transaction");
-    
+
     const updatedTransaction = await paidModel.findOneAndUpdate(
       { paymeTransactionId: params.id },
       {
         status: "paid",
-        paymePerformTime: currentTime,
+        paymePerformTime: currentTime, // CURRENT TIME SAQLASH
       },
       { new: true }
     );
@@ -765,10 +775,11 @@ async function performTransaction(req, res, params, id) {
 
     console.log("PerformTransaction - Transaction performed successfully");
 
+    // YANGI TRANZAKSIYA UCHUN JAVOB - currentTime ishlatish
     return sendPaymeResponse(
       res,
       {
-        perform_time: currentTime,
+        perform_time: updatedTransaction.paymePerformTime, // CONSISTENT
         transaction: transaction._id.toString(),
         state: PaymeTransactionState.Paid,
         detail: detail,
@@ -801,14 +812,16 @@ async function cancelTransaction(req, res, params, id) {
       );
     }
 
-    console.log(`CancelTransaction - Found transaction, status: ${transaction.status}`);
+    console.log(
+      `CancelTransaction - Found transaction, status: ${transaction.status}`
+    );
 
     const currentTime = Date.now();
 
     // Agar tranzaksiya allaqachon bekor qilingan bo'lsa
     if (transaction.status === "cancelled") {
       console.log("CancelTransaction - Already cancelled");
-      
+
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -829,7 +842,9 @@ async function cancelTransaction(req, res, params, id) {
     // Pending yoki paid tranzaksiyalarni bekor qilish
     if (transaction.status === "pending" || transaction.status === "paid") {
       const wasCompleted = transaction.status === "paid";
-      console.log(`CancelTransaction - Cancelling ${transaction.status} transaction`);
+      console.log(
+        `CancelTransaction - Cancelling ${transaction.status} transaction`
+      );
 
       // Tranzaksiyani bekor qilish
       await paidModel.findOneAndUpdate(
@@ -881,7 +896,9 @@ async function cancelTransaction(req, res, params, id) {
     }
 
     // Agar tranzaksiya bekor qilish mumkin bo'lmagan holatda bo'lsa
-    console.log("CancelTransaction - Can't cancel transaction in current state");
+    console.log(
+      "CancelTransaction - Can't cancel transaction in current state"
+    );
     return sendPaymeError(
       res,
       PaymeError.CantDoOperation,
@@ -970,7 +987,7 @@ function getTransactionState(transaction) {
 async function updateStatistics(apparatId, amount) {
   try {
     console.log("Updating statistics for apparatId:", apparatId);
-    
+
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
 
@@ -1001,7 +1018,11 @@ async function updateStatistics(apparatId, amount) {
     // Apparatning qog'oz sonini kamaytirish
     const apparat = await VendingApparat.findOne({ apparatId });
     if (apparat) {
-      console.log(`Reducing paper count from ${apparat.joriyQogozSoni} to ${apparat.joriyQogozSoni - 1}`);
+      console.log(
+        `Reducing paper count from ${apparat.joriyQogozSoni} to ${
+          apparat.joriyQogozSoni - 1
+        }`
+      );
       apparat.joriyQogozSoni -= 1;
       await apparat.save();
       console.log("Apparat paper count updated");
@@ -1027,7 +1048,7 @@ async function updateStatistics(apparatId, amount) {
 async function reverseStatistics(apparatId, amount) {
   try {
     console.log("Reversing statistics for apparatId:", apparatId);
-    
+
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
 
@@ -1051,7 +1072,11 @@ async function reverseStatistics(apparatId, amount) {
     // Apparatning qog'oz sonini qaytarish
     const apparat = await VendingApparat.findOne({ apparatId });
     if (apparat) {
-      console.log(`Increasing paper count from ${apparat.joriyQogozSoni} to ${apparat.joriyQogozSoni + 1}`);
+      console.log(
+        `Increasing paper count from ${apparat.joriyQogozSoni} to ${
+          apparat.joriyQogozSoni + 1
+        }`
+      );
       apparat.joriyQogozSoni += 1;
       await apparat.save();
       console.log("Apparat paper count reversed");
@@ -1088,13 +1113,16 @@ router.get("/test-merchant", (req, res) => {
 // Test uchun bazadan tranzaksiyalarni ko'rish
 router.get("/test-transactions", async (req, res) => {
   try {
-    const transactions = await paidModel.find({ 
-      paymentMethod: "payme" 
-    }).sort({ createdAt: -1 }).limit(10);
-    
+    const transactions = await paidModel
+      .find({
+        paymentMethod: "payme",
+      })
+      .sort({ createdAt: -1 })
+      .limit(10);
+
     res.json({
       count: transactions.length,
-      transactions: transactions.map(t => ({
+      transactions: transactions.map((t) => ({
         id: t._id,
         paymeTransactionId: t.paymeTransactionId,
         status: t.status,
@@ -1103,7 +1131,7 @@ router.get("/test-transactions", async (req, res) => {
         createTime: t.paymeCreateTime,
         performTime: t.paymePerformTime,
         cancelTime: t.paymeCancelTime,
-      }))
+      })),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1114,16 +1142,16 @@ router.get("/test-transactions", async (req, res) => {
 router.get("/test-order/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
-    
+
     const uploadedFile = await File.findById(orderId);
     const scannedFile = await scanFileModel.findById(orderId);
-    
+
     res.json({
       orderId,
       isValidObjectId: isValidObjectId(orderId),
       uploadedFile: !!uploadedFile,
       scannedFile: !!scannedFile,
-      fileData: uploadedFile || scannedFile || null
+      fileData: uploadedFile || scannedFile || null,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
