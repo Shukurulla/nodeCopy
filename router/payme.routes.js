@@ -1,4 +1,4 @@
-// router/payme.routes.js - DJANGO LOYIHASIGA MOSLANGAN VERSIYA
+// router/payme.routes.js - TUZATILGAN VERSIYA
 import express from "express";
 import mongoose from "mongoose";
 import paidModel from "../model/paid.model.js";
@@ -11,7 +11,7 @@ import base64 from "base-64";
 
 const router = express.Router();
 
-// Payme error kodlari (Django loyihasiga mos)
+// Payme error kodlari (to'g'ri)
 const PaymeError = {
   InvalidAmount: -31001,
   InvalidAccount: -31050,
@@ -22,7 +22,7 @@ const PaymeError = {
   Pending: -31050,
 };
 
-// Summa chegaralari
+// Summa chegaralari (tiyin hisobida)
 const PAYMENT_LIMITS = {
   MIN_AMOUNT: 100, // 1 som
   MAX_AMOUNT: 50000000, // 500,000 som
@@ -38,7 +38,7 @@ const PaymeMethod = {
   GetStatement: "GetStatement",
 };
 
-// Transaction state (Django loyihasiga mos)
+// Transaction state (to'g'ri qiymatlar)
 const PaymeTransactionState = {
   Paid: 2,
   Pending: 1,
@@ -46,7 +46,7 @@ const PaymeTransactionState = {
   PaidCanceled: -2,
 };
 
-// Detail obyektini yaratish (Django loyihasiga mos)
+// Detail obyektini yaratish
 const createDetailObject = (
   amount,
   title = "Vending apparat chop etish xizmati"
@@ -59,7 +59,7 @@ const createDetailObject = (
         title: title,
         price: amount,
         count: 1,
-        code: "00702001001000001", // Django loyihasidagi kod
+        code: "00702001001000001",
         units: 241092,
         vat_percent: 15,
         package_code: "123456",
@@ -68,7 +68,7 @@ const createDetailObject = (
   };
 };
 
-// Authentication middleware (Django loyihasiga mos)
+// Authentication middleware
 const paymeCheckToken = (req, res, next) => {
   try {
     const { id } = req.body;
@@ -152,7 +152,7 @@ const sendPaymeResponse = (res, result, id = null) => {
 
 // ================== PUBLIC ENDPOINTS ==================
 
-// Fayl uchun Payme link yaratish (Django loyihasiga mos)
+// Fayl uchun Payme link yaratish
 router.post("/get-payme-link", async (req, res) => {
   try {
     const { orderId, amount, returnUrl } = req.body;
@@ -182,7 +182,6 @@ router.post("/get-payme-link", async (req, res) => {
       });
     }
 
-    // Django loyihasidagi kabi URL yaratish
     const callbackUrl = `${req.protocol}://${req.get(
       "host"
     )}/api/payme/updates/`;
@@ -197,7 +196,7 @@ router.post("/get-payme-link", async (req, res) => {
     res.json({
       status: "success",
       data: {
-        payment_link: paymeLink, // Django loyihasidagi kabi
+        payment_link: paymeLink,
         amount: amount,
         order_id: orderId,
         merchant_id: merchantId,
@@ -212,7 +211,7 @@ router.post("/get-payme-link", async (req, res) => {
   }
 });
 
-// Scan file uchun Payme link yaratish (Django loyihasiga mos)
+// Scan file uchun Payme link yaratish
 router.post("/get-scan-payme-link", async (req, res) => {
   try {
     const { code, amount, returnUrl } = req.body;
@@ -242,7 +241,6 @@ router.post("/get-scan-payme-link", async (req, res) => {
       });
     }
 
-    // Django loyihasidagi kabi URL yaratish
     const callbackUrl = `${req.protocol}://${req.get(
       "host"
     )}/api/payme/updates/`;
@@ -255,7 +253,7 @@ router.post("/get-scan-payme-link", async (req, res) => {
     res.json({
       status: "success",
       data: {
-        payment_link: paymeLink, // Django loyihasidagi kabi
+        payment_link: paymeLink,
         amount: amount,
         order_id: scanFile._id,
       },
@@ -269,9 +267,8 @@ router.post("/get-scan-payme-link", async (req, res) => {
   }
 });
 
-// ================== PAYME WEBHOOK (Django loyihasiga mos) ==================
+// ================== PAYME WEBHOOK ==================
 
-// Django loyihasidagi `/api/v1/payme/updates/` endpoint
 router.post("/updates", paymeCheckToken, async (req, res) => {
   try {
     const { method, params, id } = req.body;
@@ -310,9 +307,9 @@ router.post("/updates", paymeCheckToken, async (req, res) => {
   }
 });
 
-// ================== WEBHOOK METHODS (Django loyihasiga mos) ==================
+// ================== WEBHOOK METHODS ==================
 
-// 1. CheckPerformTransaction (Django loyihasiga mos)
+// 1. CheckPerformTransaction - TO'LIQMAN TUZATILDI
 async function checkPerformTransaction(req, res, params, id) {
   try {
     const { account, amount } = params;
@@ -380,24 +377,19 @@ async function checkPerformTransaction(req, res, params, id) {
       );
     }
 
-    // Mavjud aktiv tranzaksiyalarni tekshirish
-    const existingPayments = await paidModel.find({
-      $or: [
-        { "serviceData._id": account.order_id },
-        { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
-      ],
+    // Mavjud aktiv tranzaksiyalarni tekshirish - BU YERDA ASOSIY TUZATISH
+    const existingActiveTransaction = await paidModel.findOne({
+      "serviceData._id": account.order_id,
       paymentMethod: "payme",
+      status: { $in: ["pending", "paid"] }, // Faqat aktiv tranzaksiyalar
     });
 
-    const activePayments = existingPayments.filter(
-      (payment) => payment.status === "pending" || payment.status === "paid"
-    );
+    if (existingActiveTransaction) {
+      console.log(
+        `Active transaction found: Status = ${existingActiveTransaction.status}`
+      );
 
-    if (activePayments.length > 0) {
-      const activePayment = activePayments[0];
-      console.log(`Active payment found: Status = ${activePayment.status}`);
-
-      if (activePayment.status === "paid") {
+      if (existingActiveTransaction.status === "paid") {
         console.log("Order already paid");
         return sendPaymeError(
           res,
@@ -407,7 +399,7 @@ async function checkPerformTransaction(req, res, params, id) {
         );
       }
 
-      if (activePayment.status === "pending") {
+      if (existingActiveTransaction.status === "pending") {
         console.log("Order has pending transaction");
         return sendPaymeError(
           res,
@@ -418,7 +410,7 @@ async function checkPerformTransaction(req, res, params, id) {
       }
     }
 
-    // Django loyihasidagi kabi detail obyektini yaratish
+    // Agar hech qanday aktiv tranzaksiya yo'q bo'lsa, allow: true qaytaramiz
     const serviceData = uploadedFile || scannedFile;
     const title = uploadedFile
       ? "Vending apparat chop etish xizmati"
@@ -426,7 +418,7 @@ async function checkPerformTransaction(req, res, params, id) {
 
     const detail = createDetailObject(amount, title);
 
-    console.log("CheckPerformTransaction - All validations passed");
+    console.log("CheckPerformTransaction - All validations passed - Allow: true");
     return sendPaymeResponse(
       res,
       {
@@ -441,13 +433,14 @@ async function checkPerformTransaction(req, res, params, id) {
   }
 }
 
-// 2. CheckTransaction (Django loyihasiga mos)
+// 2. CheckTransaction - TUZATILDI
 async function checkTransaction(req, res, params, id) {
   try {
     console.log("CheckTransaction called with ID:", params.id);
 
     const transaction = await paidModel.findOne({
       paymeTransactionId: params.id,
+      paymentMethod: "payme", // Payme tranzaksiyalarini aniq filtrlaymiz
     });
 
     if (!transaction) {
@@ -462,7 +455,7 @@ async function checkTransaction(req, res, params, id) {
 
     console.log("CheckTransaction found:", transaction.paymeTransactionId);
 
-    // Django loyihasidagi kabi detail obyektini yaratish
+    // Detail obyektini yaratish
     const title = transaction.serviceData.apparatId
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
@@ -491,15 +484,16 @@ async function checkTransaction(req, res, params, id) {
   }
 }
 
-// 3. CreateTransaction (Django loyihasiga mos)
+// 3. CreateTransaction - TO'LIQMAN QAYTA YOZILDI
 async function createTransaction(req, res, params, id) {
   try {
     const { id: transactionId, time, amount, account } = params;
 
     console.log("CreateTransaction called:", {
       transactionId,
-      account: account.order_id,
+      account: account?.order_id,
       amount,
+      time,
     });
 
     // Amount validatsiyasi
@@ -541,12 +535,12 @@ async function createTransaction(req, res, params, id) {
     // Aynan shu transaction ID mavjudligini tekshirish
     let existingTransaction = await paidModel.findOne({
       paymeTransactionId: transactionId,
+      paymentMethod: "payme",
     });
 
     if (existingTransaction) {
-      console.log("Same transaction ID exists, returning same response");
+      console.log("Same transaction ID exists, returning existing transaction");
 
-      // Django loyihasidagi kabi detail obyektini yaratish
       const title = existingTransaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -579,24 +573,20 @@ async function createTransaction(req, res, params, id) {
       );
     }
 
-    // Aktiv tranzaksiyalarni tekshirish
-    const existingPayments = await paidModel.find({
-      $or: [
-        { "serviceData._id": account.order_id },
-        { "serviceData._id": new mongoose.Types.ObjectId(account.order_id) },
-      ],
+    // Bu order uchun boshqa aktiv tranzaksiyalarni tekshirish
+    const existingActiveTransaction = await paidModel.findOne({
+      "serviceData._id": account.order_id,
       paymentMethod: "payme",
+      status: { $in: ["pending", "paid"] },
+      paymeTransactionId: { $ne: transactionId }, // Hozirgi tranzaksiyani hisobga olmaymiz
     });
 
-    const activePayments = existingPayments.filter(
-      (payment) => payment.status === "pending" || payment.status === "paid"
-    );
+    if (existingActiveTransaction) {
+      console.log(
+        `Active transaction exists for this order: Status = ${existingActiveTransaction.status}`
+      );
 
-    if (activePayments.length > 0) {
-      const activePayment = activePayments[0];
-      console.log(`Active payment found: Status = ${activePayment.status}`);
-
-      if (activePayment.status === "paid") {
+      if (existingActiveTransaction.status === "paid") {
         console.log("CreateTransaction - Order already paid");
         return sendPaymeError(
           res,
@@ -606,7 +596,7 @@ async function createTransaction(req, res, params, id) {
         );
       }
 
-      if (activePayment.status === "pending") {
+      if (existingActiveTransaction.status === "pending") {
         console.log("CreateTransaction - Order has pending transaction");
         return sendPaymeError(
           res,
@@ -630,7 +620,7 @@ async function createTransaction(req, res, params, id) {
 
     console.log("New transaction created:", newTransaction._id);
 
-    // Django loyihasidagi kabi detail obyektini yaratish
+    // Detail obyektini yaratish
     const title = uploadedFile
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
@@ -652,16 +642,20 @@ async function createTransaction(req, res, params, id) {
   }
 }
 
-// 4. PerformTransaction (Django loyihasiga mos)
+// 4. PerformTransaction - TUZATILDI
 async function performTransaction(req, res, params, id) {
   try {
     const currentTime = Date.now();
 
+    console.log("PerformTransaction called with ID:", params.id);
+
     const transaction = await paidModel.findOne({
       paymeTransactionId: params.id,
+      paymentMethod: "payme",
     });
 
     if (!transaction) {
+      console.log("PerformTransaction - Transaction not found");
       return sendPaymeError(
         res,
         PaymeError.TransactionNotFound,
@@ -670,17 +664,12 @@ async function performTransaction(req, res, params, id) {
       );
     }
 
-    if (transaction.status !== "pending") {
-      if (transaction.status !== "paid") {
-        return sendPaymeError(
-          res,
-          PaymeError.CantDoOperation,
-          "Can't perform",
-          id
-        );
-      }
+    console.log(`PerformTransaction - Found transaction, status: ${transaction.status}`);
 
-      // Django loyihasidagi kabi detail obyektini yaratish
+    // Agar tranzaksiya allaqachon to'langan bo'lsa
+    if (transaction.status === "paid") {
+      console.log("PerformTransaction - Transaction already performed");
+      
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -698,18 +687,33 @@ async function performTransaction(req, res, params, id) {
       );
     }
 
+    // Faqat pending tranzaksiyalarni perform qilish mumkin
+    if (transaction.status !== "pending") {
+      console.log("PerformTransaction - Can't perform transaction, status:", transaction.status);
+      return sendPaymeError(
+        res,
+        PaymeError.CantDoOperation,
+        "Can't perform transaction",
+        id
+      );
+    }
+
     // Vaqt tekshiruvi (12 daqiqa)
-    const expirationTime =
-      (currentTime - transaction.paymeCreateTime) / 60000 < 12;
-    if (!expirationTime) {
+    const timeElapsed = (currentTime - transaction.paymeCreateTime) / 60000;
+    console.log(`PerformTransaction - Time elapsed: ${timeElapsed} minutes`);
+
+    if (timeElapsed >= 12) {
+      console.log("PerformTransaction - Transaction expired, cancelling");
+      
       await paidModel.findOneAndUpdate(
         { paymeTransactionId: params.id },
         {
           status: "cancelled",
           paymeCancelTime: currentTime,
-          paymeReason: 4,
+          paymeReason: 4, // Timeout
         }
       );
+      
       return sendPaymeError(
         res,
         PaymeError.CantDoOperation,
@@ -719,6 +723,8 @@ async function performTransaction(req, res, params, id) {
     }
 
     // To'lovni amalga oshirish
+    console.log("PerformTransaction - Performing transaction");
+    
     const updatedTransaction = await paidModel.findOneAndUpdate(
       { paymeTransactionId: params.id },
       {
@@ -728,28 +734,36 @@ async function performTransaction(req, res, params, id) {
       { new: true }
     );
 
-    // Django loyihasidagi kabi order ni yangilash
+    // Statistikani yangilash
     if (transaction.serviceData.apparatId) {
+      console.log("PerformTransaction - Updating statistics");
       await updateStatistics(
         transaction.serviceData.apparatId,
         transaction.amount
       );
     }
 
-    // Socket.io xabar (Django loyihasida signal ishlatiladi)
-    req.app.get("io").emit("tolovMuvaffaqiyatli", {
-      fileId: transaction.serviceData._id,
-      apparatId: transaction.serviceData.apparatId,
-      amount: transaction.amount,
-      qogozSoni: 1,
-      paymentMethod: "payme",
-    });
+    // Socket.io xabar yuborish
+    try {
+      req.app.get("io").emit("tolovMuvaffaqiyatli", {
+        fileId: transaction.serviceData._id,
+        apparatId: transaction.serviceData.apparatId,
+        amount: transaction.amount,
+        qogozSoni: 1,
+        paymentMethod: "payme",
+      });
+      console.log("PerformTransaction - Socket event sent");
+    } catch (socketError) {
+      console.error("PerformTransaction - Socket error:", socketError);
+    }
 
-    // Django loyihasidagi kabi detail obyektini yaratish
+    // Detail obyektini yaratish
     const title = transaction.serviceData.apparatId
       ? "Vending apparat chop etish xizmati"
       : "Scan fayl chop etish xizmati";
     const detail = createDetailObject(transaction.amount, title);
+
+    console.log("PerformTransaction - Transaction performed successfully");
 
     return sendPaymeResponse(
       res,
@@ -767,14 +781,18 @@ async function performTransaction(req, res, params, id) {
   }
 }
 
-// 5. CancelTransaction (Django loyihasiga mos)
+// 5. CancelTransaction - TUZATILDI
 async function cancelTransaction(req, res, params, id) {
   try {
+    console.log("CancelTransaction called with ID:", params.id);
+
     const transaction = await paidModel.findOne({
       paymeTransactionId: params.id,
+      paymentMethod: "payme",
     });
 
     if (!transaction) {
+      console.log("CancelTransaction - Transaction not found");
       return sendPaymeError(
         res,
         PaymeError.TransactionNotFound,
@@ -783,11 +801,14 @@ async function cancelTransaction(req, res, params, id) {
       );
     }
 
+    console.log(`CancelTransaction - Found transaction, status: ${transaction.status}`);
+
     const currentTime = Date.now();
 
     // Agar tranzaksiya allaqachon bekor qilingan bo'lsa
     if (transaction.status === "cancelled") {
-      // Django loyihasidagi kabi detail obyektini yaratish
+      console.log("CancelTransaction - Already cancelled");
+      
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -808,20 +829,21 @@ async function cancelTransaction(req, res, params, id) {
     // Pending yoki paid tranzaksiyalarni bekor qilish
     if (transaction.status === "pending" || transaction.status === "paid") {
       const wasCompleted = transaction.status === "paid";
+      console.log(`CancelTransaction - Cancelling ${transaction.status} transaction`);
 
       // Tranzaksiyani bekor qilish
-      const updatedTransaction = await paidModel.findOneAndUpdate(
+      await paidModel.findOneAndUpdate(
         { paymeTransactionId: params.id },
         {
           status: "cancelled",
           paymeReason: params.reason,
           paymeCancelTime: currentTime,
-        },
-        { new: true }
+        }
       );
 
-      // Django loyihasidagi kabi order ni qaytarish
+      // Agar to'langan tranzaksiya bekor qilingan bo'lsa, statistikani qaytarish
       if (wasCompleted && transaction.serviceData.apparatId) {
+        console.log("CancelTransaction - Reversing statistics");
         await reverseStatistics(
           transaction.serviceData.apparatId,
           transaction.amount
@@ -832,15 +854,19 @@ async function cancelTransaction(req, res, params, id) {
       let state;
       if (wasCompleted) {
         state = PaymeTransactionState.PaidCanceled; // -2
+        console.log("CancelTransaction - State: PaidCanceled (-2)");
       } else {
         state = PaymeTransactionState.PendingCanceled; // -1
+        console.log("CancelTransaction - State: PendingCanceled (-1)");
       }
 
-      // Django loyihasidagi kabi detail obyektini yaratish
+      // Detail obyektini yaratish
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
       const detail = createDetailObject(transaction.amount, title);
+
+      console.log("CancelTransaction - Transaction cancelled successfully");
 
       return sendPaymeResponse(
         res,
@@ -855,6 +881,7 @@ async function cancelTransaction(req, res, params, id) {
     }
 
     // Agar tranzaksiya bekor qilish mumkin bo'lmagan holatda bo'lsa
+    console.log("CancelTransaction - Can't cancel transaction in current state");
     return sendPaymeError(
       res,
       PaymeError.CantDoOperation,
@@ -867,10 +894,12 @@ async function cancelTransaction(req, res, params, id) {
   }
 }
 
-// 6. GetStatement (Django loyihasiga mos)
+// 6. GetStatement - TUZATILDI
 async function getStatement(req, res, params, id) {
   try {
     const { from, to } = params;
+
+    console.log("GetStatement called:", { from, to });
 
     const transactions = await paidModel
       .find({
@@ -880,8 +909,9 @@ async function getStatement(req, res, params, id) {
       })
       .sort({ paymeCreateTime: 1 });
 
+    console.log(`GetStatement - Found ${transactions.length} transactions`);
+
     const result = transactions.map((transaction) => {
-      // Django loyihasidagi kabi detail obyektini yaratish
       const title = transaction.serviceData.apparatId
         ? "Vending apparat chop etish xizmati"
         : "Scan fayl chop etish xizmati";
@@ -939,6 +969,8 @@ function getTransactionState(transaction) {
 
 async function updateStatistics(apparatId, amount) {
   try {
+    console.log("Updating statistics for apparatId:", apparatId);
+    
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
 
@@ -948,6 +980,7 @@ async function updateStatistics(apparatId, amount) {
     });
 
     if (!statistika) {
+      console.log("Creating new statistics entry");
       statistika = new Statistika({
         apparatId,
         sana: bugun,
@@ -956,17 +989,35 @@ async function updateStatistics(apparatId, amount) {
         ishlatilganQogoz: 1,
       });
     } else {
+      console.log("Updating existing statistics");
       statistika.foydalanishSoni += 1;
       statistika.daromad += amount;
       statistika.ishlatilganQogoz += 1;
     }
 
     await statistika.save();
+    console.log("Statistics updated successfully");
 
+    // Apparatning qog'oz sonini kamaytirish
     const apparat = await VendingApparat.findOne({ apparatId });
     if (apparat) {
+      console.log(`Reducing paper count from ${apparat.joriyQogozSoni} to ${apparat.joriyQogozSoni - 1}`);
       apparat.joriyQogozSoni -= 1;
       await apparat.save();
+      console.log("Apparat paper count updated");
+
+      // Qog'oz kam qolganda xabar berish
+      if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
+        console.log("Paper running low, emitting socket event");
+        // Socket event yuborish (global io objektiga murojaat qilish)
+        // req.app.get("io").emit("qogozKam", {
+        //   apparatId,
+        //   joriyQogozSoni: apparat.joriyQogozSoni,
+        //   xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`,
+        // });
+      }
+    } else {
+      console.log("Apparat not found for ID:", apparatId);
     }
   } catch (error) {
     console.error("Statistikani yangilashda xatolik:", error);
@@ -975,6 +1026,8 @@ async function updateStatistics(apparatId, amount) {
 
 async function reverseStatistics(apparatId, amount) {
   try {
+    console.log("Reversing statistics for apparatId:", apparatId);
+    
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
 
@@ -984,6 +1037,7 @@ async function reverseStatistics(apparatId, amount) {
     });
 
     if (statistika) {
+      console.log("Reversing existing statistics");
       statistika.foydalanishSoni = Math.max(0, statistika.foydalanishSoni - 1);
       statistika.daromad = Math.max(0, statistika.daromad - amount);
       statistika.ishlatilganQogoz = Math.max(
@@ -991,12 +1045,18 @@ async function reverseStatistics(apparatId, amount) {
         statistika.ishlatilganQogoz - 1
       );
       await statistika.save();
+      console.log("Statistics reversed successfully");
     }
 
+    // Apparatning qog'oz sonini qaytarish
     const apparat = await VendingApparat.findOne({ apparatId });
     if (apparat) {
+      console.log(`Increasing paper count from ${apparat.joriyQogozSoni} to ${apparat.joriyQogozSoni + 1}`);
       apparat.joriyQogozSoni += 1;
       await apparat.save();
+      console.log("Apparat paper count reversed");
+    } else {
+      console.log("Apparat not found for ID:", apparatId);
     }
   } catch (error) {
     console.error("Statistikani qaytarishda xatolik:", error);
@@ -1023,6 +1083,51 @@ router.get("/test-merchant", (req, res) => {
     testKey: process.env.PAYME_TEST_KEY,
     isValidLength: process.env.PAYME_MERCHANT_ID?.length === 24,
   });
+});
+
+// Test uchun bazadan tranzaksiyalarni ko'rish
+router.get("/test-transactions", async (req, res) => {
+  try {
+    const transactions = await paidModel.find({ 
+      paymentMethod: "payme" 
+    }).sort({ createdAt: -1 }).limit(10);
+    
+    res.json({
+      count: transactions.length,
+      transactions: transactions.map(t => ({
+        id: t._id,
+        paymeTransactionId: t.paymeTransactionId,
+        status: t.status,
+        amount: t.amount,
+        orderId: t.serviceData._id,
+        createTime: t.paymeCreateTime,
+        performTime: t.paymePerformTime,
+        cancelTime: t.paymeCancelTime,
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test uchun order mavjudligini tekshirish
+router.get("/test-order/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    
+    const uploadedFile = await File.findById(orderId);
+    const scannedFile = await scanFileModel.findById(orderId);
+    
+    res.json({
+      orderId,
+      isValidObjectId: isValidObjectId(orderId),
+      uploadedFile: !!uploadedFile,
+      scannedFile: !!scannedFile,
+      fileData: uploadedFile || scannedFile || null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;
