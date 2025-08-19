@@ -373,7 +373,7 @@ router.post("/check-payment-status", async (req, res) => {
     console.log(`🔍 To'lov holati tekshirilmoqda: order_id=${order_id}`);
 
     const findFileWithPath = await paidModel.findOne({
-      "serviceData.fileUrl": order_id,
+      "serviceData._id": order_id,
     });
 
     if (!findFileWithPath) {
