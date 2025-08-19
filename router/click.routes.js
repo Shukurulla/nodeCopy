@@ -537,7 +537,7 @@ router.post("/complete", async (req, res) => {
 });
 
 // To'lov holatini tekshirish
-router.post("/check-payment-status", async (req, res) => {
+router.post("/api/check-payment-status", async (req, res) => {
   try {
     const { order_id } = req.body;
 
@@ -588,7 +588,7 @@ router.post("/check-payment-status", async (req, res) => {
 });
 
 // File upload uchun to'lov havolasini olish - TO'G'RILANGAN
-router.post("/get-click-link", async (req, res) => {
+router.post("/api/get-click-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
     console.log(
@@ -644,7 +644,7 @@ router.post("/get-click-link", async (req, res) => {
 });
 
 // Scan uchun to'lov havolasini olish - TO'G'RILANGAN
-router.post("/get-scan-link", async (req, res) => {
+router.post("/api/get-scan-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
     console.log(`🔍 Scan link so'ralmoqda: code=${code}, amount=${amount}`);
@@ -704,7 +704,7 @@ router.post("/get-scan-link", async (req, res) => {
 });
 
 // Test endpoint - development uchun
-router.get("/test", (req, res) => {
+router.get("/api/test", (req, res) => {
   console.log("🧪 Test endpoint ishga tushdi");
   res.json({
     status: "success",
