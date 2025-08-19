@@ -64,6 +64,7 @@ router.post("/prepare", async (req, res) => {
       sign_time,
     };
     const isValid = clickCheckToken(signatureData, sign_string);
+    console.log(merchant_trans_id);
 
     if (!isValid) {
       console.log("❌ Prepare: Invalid signature");
@@ -285,40 +286,6 @@ router.post("/complete", async (req, res) => {
       // ✅ Scan file uchun apparatId olish
       apparatId = scannedFile.apparatId || "scan-device";
       console.log(`📄 Scan file uchun apparatId: ${apparatId}`);
-
-      // Scan uchun qo'shimcha statistika kerak bo'lsa, shu yerda qo'shing
-      // Masalan:
-      /*
-      try {
-        // Scan statistikasi
-        const bugun = new Date();
-        bugun.setHours(0, 0, 0, 0);
-        
-        let scanStatistika = await Statistika.findOne({
-          apparatId: "scan-global",
-          sana: { $gte: bugun }
-        });
-        
-        if (!scanStatistika) {
-          scanStatistika = new Statistika({
-            apparatId: "scan-global",
-            sana: bugun,
-            foydalanishSoni: 1,
-            daromad: +amount,
-            ishlatilganQogoz: 1,
-          });
-        } else {
-          scanStatistika.foydalanishSoni += 1;
-          scanStatistika.daromad += +amount;
-          scanStatistika.ishlatilganQogoz += 1;
-        }
-        
-        await scanStatistika.save();
-        console.log("✅ Scan statistika saqlandi");
-      } catch (scanStatsError) {
-        console.error("❌ Scan statistika xatoligi:", scanStatsError);
-      }
-      */
     }
 
     // ✅ Umumiy WebSocket eventi (file va scan uchun)
