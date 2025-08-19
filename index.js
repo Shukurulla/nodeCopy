@@ -428,7 +428,7 @@ const getFileLink = async (fileId) => {
 
 app.use("/api/admin", adminRouter);
 app.use("/scan-file", ScanFileRouter);
-app.use("/click", clickRouter);
+app.use("/api/click", clickRouter);
 app.use("/api/payme", paymeRouter); // Eski endpoint
 app.use("/api/v1/payme", paymeRouter); // Payme router qo'shildi
 app.use("/api/paid", PaidRouter);
