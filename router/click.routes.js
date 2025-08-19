@@ -26,7 +26,7 @@ router.use((req, res, next) => {
 });
 
 // Environment variables tekshirish
-const CLICK_SECRET_KEY = process.env.CLICK_SECRET_KEY;
+const CLICK_SECRET_KEY = process.env.CLICK_SECRET_KEY || "cCmLS75coPW7E";
 const SERVICE_ID = process.env.CLICK_SERVICE_ID || "71257";
 const MERCHANT_ID = process.env.CLICK_MERCHANT_ID || "38721";
 
