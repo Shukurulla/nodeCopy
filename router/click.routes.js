@@ -540,7 +540,6 @@ router.post("/complete", async (req, res) => {
 router.post("/check-payment-status", async (req, res) => {
   try {
     const { order_id } = req.body;
-    console.log(`🔍 To'lov holati tekshirilmoqda: order_id=${order_id}`);
 
     if (!order_id) {
       return res.status(400).json({
@@ -554,7 +553,7 @@ router.post("/check-payment-status", async (req, res) => {
     });
 
     if (!payment) {
-      console.log("❌ To'lov topilmadi");
+      // console.log("❌ To'lov topilmadi");
       return res.json({
         status: "error",
         message: "To'lov topilmadi",
@@ -580,7 +579,7 @@ router.post("/check-payment-status", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Check payment status xatolik:", error);
+    // console.error("❌ Check payment status xatolik:", error);
     res.status(500).json({
       status: "error",
       message: error.message,
@@ -633,11 +632,7 @@ router.post("/get-click-link", async (req, res) => {
 
     return res.json({
       status: "success",
-      data: {
-        payment_url: qrCode,
-        order_id: findFileWithPath._id,
-        amount: +amount,
-      },
+      data: qrCode,
     });
   } catch (error) {
     console.error("❌ Get click link xatolik:", error);
