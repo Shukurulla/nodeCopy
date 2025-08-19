@@ -437,7 +437,7 @@ router.post("/get-click-link", async (req, res) => {
       });
     }
 
-    const findFileWithPath = await File.findOne({ fileUrl: orderId });
+    const findFileWithPath = await File.findById(orderId);
     if (!findFileWithPath) {
       console.log(`❌ File topilmadi: orderId=${orderId}`);
       return res.json({ status: "error", message: "bunday file topilmadi" });
