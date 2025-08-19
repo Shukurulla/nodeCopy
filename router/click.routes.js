@@ -621,7 +621,7 @@ router.post("/get-click-link", async (req, res) => {
     }
 
     // TO'G'RI Click URL format
-    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&merchant_trans_id=${findFileWithPath._id}`;
+    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&transaction_param=${findFileWithPath._id}`;
 
     console.log(`✅ File QR kod yaratildi:`, {
       fileId: findFileWithPath._id,
@@ -675,7 +675,7 @@ router.post("/get-scan-link", async (req, res) => {
     }
 
     // TO'G'RI Click URL format
-    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&merchant_trans_id=${findFileWithPath._id}`;
+    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&transaction_param=${findFileWithPath._id}`;
 
     console.log(`✅ Scan QR kod yaratildi:`, {
       fileId: findFileWithPath._id,
