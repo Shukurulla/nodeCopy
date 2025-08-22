@@ -43,13 +43,12 @@ console.log("🔧 Click sozlamalari:", {
   SECRET_KEY_LENGTH: CLICK_SECRET_KEY.length,
 });
 
-// Signature tekshirish funksiyasi - TO'G'RILANGAN
 const clickCheckToken = (data, signString) => {
   try {
     const {
       click_trans_id,
       service_id,
-      orderId,
+      merchant_trans_id, // orderId o'rniga merchant_trans_id ishlatish
       merchant_prepare_id,
       amount,
       action,
@@ -59,13 +58,24 @@ const clickCheckToken = (data, signString) => {
     const prepareId = merchant_prepare_id || "";
 
     // Click dokumentatsiyasiga mos signature yaratish
-    const signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${orderId}${prepareId}${amount}${action}${sign_time}`;
+    // PREPARE uchun: click_trans_id + service_id + secret_key + merchant_trans_id + amount + action + sign_time
+    // COMPLETE uchun: click_trans_id + service_id + secret_key + merchant_trans_id + merchant_prepare_id + amount + action + sign_time
+
+    let signature;
+    if (action === "0") {
+      // PREPARE
+      signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${merchant_trans_id}${amount}${action}${sign_time}`;
+    } else if (action === "1") {
+      // COMPLETE
+      signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${merchant_trans_id}${prepareId}${amount}${action}${sign_time}`;
+    }
+
     const signatureHash = md5(signature);
 
     console.log("🔐 Signature tekshirish:", {
       click_trans_id,
       service_id,
-      orderId,
+      merchant_trans_id,
       prepareId,
       amount,
       action,
@@ -82,7 +92,6 @@ const clickCheckToken = (data, signString) => {
     return false;
   }
 };
-
 // Helper: Click javobini yuborish
 const sendClickResponse = (result, res) => {
   console.log("📤 Click javob yuborilmoqda:", result);
@@ -101,7 +110,8 @@ const sendClickResponse = (result, res) => {
     .send(responseString);
 };
 
-// PREPARE ENDPOINT
+// PREPARE ENDPOINT - TUZATILGAN
+
 router.post("/prepare", async (req, res) => {
   console.log("🚀 PREPARE ENDPOINT ISHGA TUSHDI");
 
@@ -133,23 +143,14 @@ router.post("/prepare", async (req, res) => {
       !service_id ||
       !merchant_trans_id ||
       !amount ||
-      !action ||
+      action === undefined || // action 0 bo'lishi mumkin
       !sign_time ||
       !sign_string
     ) {
-      console.log("❌ Ba'zi parametrlar yo'q:", {
-        click_trans_id: !!click_trans_id,
-        service_id: !!service_id,
-        merchant_trans_id: !!merchant_trans_id,
-        amount: !!amount,
-        action: !!action,
-        sign_time: !!sign_time,
-        sign_string: !!sign_string,
-      });
-
+      console.log("❌ Ba'zi parametrlar yo'q");
       return sendClickResponse(
         {
-          error: ClickError.BadRequest || -2,
+          error: -8, // BadRequest
           error_note: "Missing required parameters",
         },
         res
@@ -163,18 +164,18 @@ router.post("/prepare", async (req, res) => {
       );
       return sendClickResponse(
         {
-          error: ClickError.BadRequest || -2,
+          error: -3, // ActionNotFound
           error_note: "Invalid service_id",
         },
         res
       );
     }
 
-    // Signature tekshirish
+    // Signature tekshirish - TO'G'RI PARAMETRLAR BILAN
     const signatureData = {
       click_trans_id,
       service_id,
-      orderId: merchant_trans_id,
+      merchant_trans_id, // orderId emas, merchant_trans_id
       amount,
       action,
       sign_time,
@@ -186,7 +187,7 @@ router.post("/prepare", async (req, res) => {
       console.log("❌ Prepare: Invalid signature");
       return sendClickResponse(
         {
-          error: ClickError.SignFailed || -1,
+          error: -1, // SignFailed
           error_note: "Invalid signature",
         },
         res
@@ -222,7 +223,7 @@ router.post("/prepare", async (req, res) => {
       console.log("❌ Prepare: File topilmadi");
       return sendClickResponse(
         {
-          error: ClickError.UserNotFound || -5,
+          error: -5, // UserNotFound
           error_note: "Order not found",
         },
         res
@@ -232,13 +233,14 @@ router.post("/prepare", async (req, res) => {
     // Allaqachon to'langanligini tekshirish
     const existingPayment = await paidModel.findOne({
       "serviceData._id": merchant_trans_id,
+      status: "paid", // faqat to'langan holatni tekshirish
     });
 
     if (existingPayment) {
       console.log("❌ Prepare: Allaqachon to'langan");
       return sendClickResponse(
         {
-          error: ClickError.AlreadyPaid || -4,
+          error: -4, // AlreadyPaid
           error_note: "Already paid",
         },
         res
@@ -261,7 +263,7 @@ router.post("/prepare", async (req, res) => {
         click_trans_id,
         merchant_trans_id,
         merchant_prepare_id,
-        error: ClickError.Success || 0,
+        error: 0, // Success
         error_note: "Success",
       },
       res
@@ -270,7 +272,7 @@ router.post("/prepare", async (req, res) => {
     console.error("❌ Prepare umumiy xatolik:", error);
     return sendClickResponse(
       {
-        error: ClickError.TransactionCanceled || -9,
+        error: -9, // TransactionCanceled
         error_note: "Technical error",
       },
       res
@@ -279,6 +281,7 @@ router.post("/prepare", async (req, res) => {
 });
 
 // COMPLETE ENDPOINT
+// COMPLETE ENDPOINT - TUZATILGAN
 router.post("/complete", async (req, res) => {
   console.log("🏁 COMPLETE ENDPOINT ISHGA TUSHDI");
 
@@ -308,23 +311,23 @@ router.post("/complete", async (req, res) => {
     });
 
     // Click tomonidan xatolik bo'lsa
-    if (click_error && click_error !== "0") {
+    if (click_error && click_error !== "0" && click_error !== 0) {
       console.log(`❌ Click tomonidan xatolik: ${click_error}`);
       return sendClickResponse(
         {
-          error: ClickError.TransactionCanceled || -9,
+          error: -9, // TransactionCanceled
           error_note: "Transaction failed by Click",
         },
         res
       );
     }
 
-    // Signature tekshirish
+    // Signature tekshirish - merchant_prepare_id bilan
     const signatureData = {
       click_trans_id,
       service_id,
-      orderId: merchant_trans_id,
-      merchant_prepare_id,
+      merchant_trans_id,
+      merchant_prepare_id, // Complete uchun bu majburiy
       amount,
       action,
       sign_time,
@@ -336,7 +339,7 @@ router.post("/complete", async (req, res) => {
       console.log("❌ Complete: Invalid signature");
       return sendClickResponse(
         {
-          error: ClickError.SignFailed || -1,
+          error: -1, // SignFailed
           error_note: "Invalid signature",
         },
         res
@@ -363,7 +366,7 @@ router.post("/complete", async (req, res) => {
       console.log("❌ Complete: Service data topilmadi");
       return sendClickResponse(
         {
-          error: ClickError.UserNotFound || -5,
+          error: -5, // UserNotFound
           error_note: "Order not found",
         },
         res
@@ -373,6 +376,7 @@ router.post("/complete", async (req, res) => {
     // Takroriy to'lovni tekshirish
     const existingPayment = await paidModel.findOne({
       "serviceData._id": merchant_trans_id,
+      status: "paid",
     });
 
     if (existingPayment) {
@@ -382,7 +386,7 @@ router.post("/complete", async (req, res) => {
           click_trans_id,
           merchant_trans_id,
           merchant_confirm_id: merchant_prepare_id,
-          error: ClickError.AlreadyPaid || -4,
+          error: -4, // AlreadyPaid
           error_note: "Already paid",
         },
         res
@@ -396,8 +400,8 @@ router.post("/complete", async (req, res) => {
       serviceData: serviceData,
       amount: +amount,
       date: new Date(),
-      click_trans_id,
-      merchant_trans_id,
+      clickTransactionId: click_trans_id, // click_trans_id emas
+      paymentMethod: "click", // payment method qo'shish
     });
 
     console.log("✅ To'lov saqlandi:", payment._id);
@@ -519,7 +523,7 @@ router.post("/complete", async (req, res) => {
         click_trans_id,
         merchant_trans_id,
         merchant_confirm_id,
-        error: ClickError.Success || 0,
+        error: 0, // Success
         error_note: "Success",
       },
       res
@@ -528,7 +532,7 @@ router.post("/complete", async (req, res) => {
     console.error("❌ Complete umumiy xatolik:", error);
     return sendClickResponse(
       {
-        error: ClickError.TransactionCanceled || -9,
+        error: -9, // TransactionCanceled
         error_note: "Technical error",
       },
       res
