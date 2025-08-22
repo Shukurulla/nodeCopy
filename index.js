@@ -430,7 +430,7 @@ app.use("/api/admin", adminRouter);
 app.use("/scan-file", ScanFileRouter);
 app.use("/api/click", clickRouter);
 app.use("/api/payme", paymeRouter); // Eski endpoint
-app.use("/api/v1/payme", paymeRouter); // Payme router qo'shildi
+app.use("/api/v1/payme", paymeRouter);
 app.use("/api/paid", PaidRouter);
 app.use("/api/vending-apparat", vendingApparatRouter);
 app.use("/api/statistika", statistikaRouter);

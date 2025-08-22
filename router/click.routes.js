@@ -6,6 +6,7 @@ import Statistika from "../model/statistika.model.js";
 import VendingApparat from "../model/vendingApparat.model.js";
 import md5 from "md5";
 import { ClickError } from "../enum/transaction.enum.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -533,6 +534,7 @@ router.post("/complete", async (req, res) => {
 router.post("/check-payment-status", async (req, res) => {
   try {
     const { order_id } = req.body;
+    console.log(order_id);
 
     if (!order_id) {
       return res.status(400).json({
@@ -542,7 +544,7 @@ router.post("/check-payment-status", async (req, res) => {
     }
 
     const payment = await paidModel.findOne({
-      "serviceData._id": order_id,
+      "serviceData._id": new mongoose.Types.ObjectId(order_id),
     });
 
     if (!payment) {
