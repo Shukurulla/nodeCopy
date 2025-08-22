@@ -43,12 +43,13 @@ console.log("🔧 Click sozlamalari:", {
   SECRET_KEY_LENGTH: CLICK_SECRET_KEY.length,
 });
 
+// Signature tekshirish funksiyasi - Click dokumentatsiyasiga mos
 const clickCheckToken = (data, signString) => {
   try {
     const {
       click_trans_id,
       service_id,
-      merchant_trans_id, // orderId o'rniga merchant_trans_id ishlatish
+      merchant_trans_id,
       merchant_prepare_id,
       amount,
       action,
@@ -58,14 +59,11 @@ const clickCheckToken = (data, signString) => {
     const prepareId = merchant_prepare_id || "";
 
     // Click dokumentatsiyasiga mos signature yaratish
-    // PREPARE uchun: click_trans_id + service_id + secret_key + merchant_trans_id + amount + action + sign_time
-    // COMPLETE uchun: click_trans_id + service_id + secret_key + merchant_trans_id + merchant_prepare_id + amount + action + sign_time
-
     let signature;
-    if (action === "0") {
+    if (action === "0" || action === 0) {
       // PREPARE
       signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${merchant_trans_id}${amount}${action}${sign_time}`;
-    } else if (action === "1") {
+    } else {
       // COMPLETE
       signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${merchant_trans_id}${prepareId}${amount}${action}${sign_time}`;
     }
@@ -92,26 +90,16 @@ const clickCheckToken = (data, signString) => {
     return false;
   }
 };
-// Helper: Click javobini yuborish
+
+// MUHIM: JSON FORMATDA JAVOB YUBORISH
 const sendClickResponse = (result, res) => {
-  console.log("📤 Click javob yuborilmoqda:", result);
+  console.log("📤 Click javob yuborilmoqda (JSON):", result);
 
-  // Click to'lov tizimi form-urlencoded formatda javob kutadi
-  const responseString = Object.keys(result)
-    .map((key) => `${key}=${encodeURIComponent(result[key])}`)
-    .join("&");
-
-  console.log("📤 Response string:", responseString);
-
-  res
-    .set({
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    })
-    .send(responseString);
+  // CLICK SUPPORT KO'RSATMASI BO'YICHA JSON FORMATDA JAVOB
+  res.status(200).json(result);
 };
 
-// PREPARE ENDPOINT - TUZATILGAN
-
+// PREPARE ENDPOINT
 router.post("/prepare", async (req, res) => {
   console.log("🚀 PREPARE ENDPOINT ISHGA TUSHDI");
 
@@ -143,14 +131,14 @@ router.post("/prepare", async (req, res) => {
       !service_id ||
       !merchant_trans_id ||
       !amount ||
-      action === undefined || // action 0 bo'lishi mumkin
+      action === undefined ||
       !sign_time ||
       !sign_string
     ) {
       console.log("❌ Ba'zi parametrlar yo'q");
       return sendClickResponse(
         {
-          error: -8, // BadRequest
+          error: ClickError.BadRequest,
           error_note: "Missing required parameters",
         },
         res
@@ -164,18 +152,18 @@ router.post("/prepare", async (req, res) => {
       );
       return sendClickResponse(
         {
-          error: -3, // ActionNotFound
+          error: ClickError.BadRequest,
           error_note: "Invalid service_id",
         },
         res
       );
     }
 
-    // Signature tekshirish - TO'G'RI PARAMETRLAR BILAN
+    // Signature tekshirish
     const signatureData = {
       click_trans_id,
       service_id,
-      merchant_trans_id, // orderId emas, merchant_trans_id
+      merchant_trans_id,
       amount,
       action,
       sign_time,
@@ -187,7 +175,7 @@ router.post("/prepare", async (req, res) => {
       console.log("❌ Prepare: Invalid signature");
       return sendClickResponse(
         {
-          error: -1, // SignFailed
+          error: ClickError.SignFailed,
           error_note: "Invalid signature",
         },
         res
@@ -223,7 +211,7 @@ router.post("/prepare", async (req, res) => {
       console.log("❌ Prepare: File topilmadi");
       return sendClickResponse(
         {
-          error: -5, // UserNotFound
+          error: ClickError.UserNotFound,
           error_note: "Order not found",
         },
         res
@@ -233,14 +221,14 @@ router.post("/prepare", async (req, res) => {
     // Allaqachon to'langanligini tekshirish
     const existingPayment = await paidModel.findOne({
       "serviceData._id": merchant_trans_id,
-      status: "paid", // faqat to'langan holatni tekshirish
+      status: "paid",
     });
 
     if (existingPayment) {
       console.log("❌ Prepare: Allaqachon to'langan");
       return sendClickResponse(
         {
-          error: -4, // AlreadyPaid
+          error: ClickError.AlreadyPaid,
           error_note: "Already paid",
         },
         res
@@ -258,12 +246,13 @@ router.post("/prepare", async (req, res) => {
       fileType,
     });
 
+    // CLICK SUPPORT KO'RSATMASI BO'YICHA JAVOB
     return sendClickResponse(
       {
-        click_trans_id,
-        merchant_trans_id,
-        merchant_prepare_id,
-        error: 0, // Success
+        click_trans_id: click_trans_id,
+        merchant_trans_id: merchant_trans_id,
+        merchant_prepare_id: merchant_prepare_id,
+        error: ClickError.Success,
         error_note: "Success",
       },
       res
@@ -272,7 +261,7 @@ router.post("/prepare", async (req, res) => {
     console.error("❌ Prepare umumiy xatolik:", error);
     return sendClickResponse(
       {
-        error: -9, // TransactionCanceled
+        error: ClickError.TransactionCanceled,
         error_note: "Technical error",
       },
       res
@@ -281,7 +270,6 @@ router.post("/prepare", async (req, res) => {
 });
 
 // COMPLETE ENDPOINT
-// COMPLETE ENDPOINT - TUZATILGAN
 router.post("/complete", async (req, res) => {
   console.log("🏁 COMPLETE ENDPOINT ISHGA TUSHDI");
 
@@ -315,19 +303,19 @@ router.post("/complete", async (req, res) => {
       console.log(`❌ Click tomonidan xatolik: ${click_error}`);
       return sendClickResponse(
         {
-          error: -9, // TransactionCanceled
+          error: ClickError.TransactionCanceled,
           error_note: "Transaction failed by Click",
         },
         res
       );
     }
 
-    // Signature tekshirish - merchant_prepare_id bilan
+    // Signature tekshirish
     const signatureData = {
       click_trans_id,
       service_id,
       merchant_trans_id,
-      merchant_prepare_id, // Complete uchun bu majburiy
+      merchant_prepare_id,
       amount,
       action,
       sign_time,
@@ -339,7 +327,7 @@ router.post("/complete", async (req, res) => {
       console.log("❌ Complete: Invalid signature");
       return sendClickResponse(
         {
-          error: -1, // SignFailed
+          error: ClickError.SignFailed,
           error_note: "Invalid signature",
         },
         res
@@ -366,7 +354,7 @@ router.post("/complete", async (req, res) => {
       console.log("❌ Complete: Service data topilmadi");
       return sendClickResponse(
         {
-          error: -5, // UserNotFound
+          error: ClickError.UserNotFound,
           error_note: "Order not found",
         },
         res
@@ -383,10 +371,10 @@ router.post("/complete", async (req, res) => {
       console.log("❌ Complete: Allaqachon to'langan");
       return sendClickResponse(
         {
-          click_trans_id,
-          merchant_trans_id,
+          click_trans_id: click_trans_id,
+          merchant_trans_id: merchant_trans_id,
           merchant_confirm_id: merchant_prepare_id,
-          error: -4, // AlreadyPaid
+          error: ClickError.AlreadyPaid,
           error_note: "Already paid",
         },
         res
@@ -400,8 +388,8 @@ router.post("/complete", async (req, res) => {
       serviceData: serviceData,
       amount: +amount,
       date: new Date(),
-      clickTransactionId: click_trans_id, // click_trans_id emas
-      paymentMethod: "click", // payment method qo'shish
+      clickTransactionId: click_trans_id,
+      paymentMethod: "click",
     });
 
     console.log("✅ To'lov saqlandi:", payment._id);
@@ -518,12 +506,13 @@ router.post("/complete", async (req, res) => {
 
     console.log("✅ Complete muvaffaqiyatli tugallandi");
 
+    // CLICK SUPPORT KO'RSATMASI BO'YICHA JAVOB
     return sendClickResponse(
       {
-        click_trans_id,
-        merchant_trans_id,
-        merchant_confirm_id,
-        error: 0, // Success
+        click_trans_id: click_trans_id,
+        merchant_trans_id: merchant_trans_id,
+        merchant_confirm_id: merchant_confirm_id,
+        error: ClickError.Success,
         error_note: "Success",
       },
       res
@@ -532,7 +521,7 @@ router.post("/complete", async (req, res) => {
     console.error("❌ Complete umumiy xatolik:", error);
     return sendClickResponse(
       {
-        error: -9, // TransactionCanceled
+        error: ClickError.TransactionCanceled,
         error_note: "Technical error",
       },
       res
@@ -557,7 +546,6 @@ router.post("/check-payment-status", async (req, res) => {
     });
 
     if (!payment) {
-      // console.log("❌ To'lov topilmadi");
       return res.json({
         status: "error",
         message: "To'lov topilmadi",
@@ -579,7 +567,7 @@ router.post("/check-payment-status", async (req, res) => {
       data: {
         amount: payment.amount,
         date: payment.date,
-        click_trans_id: payment.click_trans_id,
+        click_trans_id: payment.clickTransactionId,
       },
     });
   } catch (error) {
@@ -591,7 +579,7 @@ router.post("/check-payment-status", async (req, res) => {
   }
 });
 
-// File upload uchun to'lov havolasini olish - TO'G'RILANGAN
+// File upload uchun to'lov havolasini olish
 router.post("/get-click-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
@@ -647,7 +635,7 @@ router.post("/get-click-link", async (req, res) => {
   }
 });
 
-// Scan uchun to'lov havolasini olish - TO'G'RILANGAN
+// Scan uchun to'lov havolasini olish
 router.post("/get-scan-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
@@ -707,7 +695,7 @@ router.post("/get-scan-link", async (req, res) => {
   }
 });
 
-// Test endpoint - development uchun
+// Test endpoint
 router.get("/test", (req, res) => {
   console.log("🧪 Test endpoint ishga tushdi");
   res.json({
