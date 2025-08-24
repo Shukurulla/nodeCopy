@@ -9,6 +9,7 @@ import cors from "cors";
 import clickRouter from "./router/click.routes.js";
 import paymeRouter from "./router/payme.routes.js"; // Payme router qo'shildi
 import ScanFileRouter from "./router/scanFile.routes.js";
+import copyRouter from "./router/copy.routes.js"; // YANGI COPY ROUTER
 import scanFileModel from "./model/scanFile.model.js";
 import File from "./model/file.model.js";
 import PaidRouter from "./router/paid.routes.js";
@@ -428,6 +429,7 @@ const getFileLink = async (fileId) => {
 
 app.use("/api/admin", adminRouter);
 app.use("/scan-file", ScanFileRouter);
+app.use("/api/copy", copyRouter); // YANGI COPY ROUTER QO'SHILDI
 app.use("/api/click", clickRouter);
 app.use("/api/payme", paymeRouter); // Eski endpoint
 app.use("/api/v1/payme", paymeRouter);

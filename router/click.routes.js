@@ -2,6 +2,7 @@ import express from "express";
 import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
+import copyModel from "../model/copy.model.js"; // YANGI IMPORT
 import Statistika from "../model/statistika.model.js";
 import VendingApparat from "../model/vendingApparat.model.js";
 import md5 from "md5";
@@ -183,7 +184,7 @@ router.post("/prepare", async (req, res) => {
       );
     }
 
-    // File yoki scan file mavjudligini tekshirish
+    // File yoki scan file yoki copy mavjudligini tekshirish
     let serviceData = null;
     let fileType = null;
 
@@ -198,6 +199,13 @@ router.post("/prepare", async (req, res) => {
       if (scannedFile) {
         serviceData = scannedFile;
         fileType = "scanned_file";
+      } else {
+        // YANGI: Copy file dan qidirish
+        const copyFile = await copyModel.findById(merchant_trans_id);
+        if (copyFile) {
+          serviceData = copyFile;
+          fileType = "copy_file";
+        }
       }
     }
 
@@ -348,6 +356,13 @@ router.post("/complete", async (req, res) => {
       if (scannedFile) {
         serviceData = scannedFile;
         fileType = "scanned_file";
+      } else {
+        // YANGI: Copy file dan qidirish
+        const copyFile = await copyModel.findById(merchant_trans_id);
+        if (copyFile) {
+          serviceData = copyFile;
+          fileType = "copy_file";
+        }
       }
     }
 
@@ -473,6 +488,81 @@ router.post("/complete", async (req, res) => {
     } else if (fileType === "scanned_file") {
       apparatId = serviceData.apparatId || "scan-device";
       console.log(`📄 Scan file uchun apparatId: ${apparatId}`);
+    } else if (fileType === "copy_file") {
+      // YANGI: Copy file uchun logika
+      apparatId = serviceData.apparatId;
+      console.log(`📋 Copy file uchun logika: apparatId=${apparatId}`);
+
+      try {
+        // Statistika yangilash
+        const bugun = new Date();
+        bugun.setHours(0, 0, 0, 0);
+
+        let statistika = await Statistika.findOne({
+          apparatId,
+          sana: { $gte: bugun },
+        });
+
+        if (!statistika) {
+          console.log("📊 Yangi statistika yaratilmoqda (copy)");
+          statistika = new Statistika({
+            apparatId,
+            sana: bugun,
+            foydalanishSoni: 1,
+            daromad: +amount,
+            ishlatilganQogoz: 1,
+          });
+        } else {
+          console.log("📊 Mavjud statistika yangilanmoqda (copy)");
+          statistika.foydalanishSoni += 1;
+          statistika.daromad += +amount;
+          statistika.ishlatilganQogoz += 1;
+        }
+
+        await statistika.save();
+        console.log("✅ Statistika saqlandi (copy)");
+
+        // Apparat qog'oz sonini kamaytirish
+        const apparat = await VendingApparat.findOne({ apparatId });
+        if (apparat && apparat.joriyQogozSoni > 0) {
+          console.log(
+            `📄 Qog'oz soni (copy): ${apparat.joriyQogozSoni} -> ${
+              apparat.joriyQogozSoni - 1
+            }`
+          );
+          apparat.joriyQogozSoni -= 1;
+          await apparat.save();
+
+          // Qog'oz kam qolganda ogohlantirish
+          if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
+            console.log(
+              "⚠️ Qog'oz kam qoldi (copy), WebSocket xabar yuborilmoqda"
+            );
+            try {
+              req.app.get("io").emit("qogozKam", {
+                apparatId,
+                joriyQogozSoni: apparat.joriyQogozSoni,
+                xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`,
+              });
+            } catch (socketError) {
+              console.error(
+                "❌ WebSocket qog'oz kam xabari xatoligi (copy):",
+                socketError
+              );
+            }
+          }
+        }
+      } catch (statsError) {
+        console.error("❌ Statistika xatoligi (copy):", statsError);
+      }
+
+      // Copy file ni o'chirish
+      try {
+        await copyModel.findByIdAndDelete(serviceData._id);
+        console.log(`🗑️ Copy file o'chirildi: ${serviceData._id}`);
+      } catch (deleteError) {
+        console.error("❌ Copy file o'chirishda xatolik:", deleteError);
+      }
     }
 
     // WebSocket eventi yuborish
@@ -483,6 +573,7 @@ router.post("/complete", async (req, res) => {
       qogozSoni: 1,
       type: fileType,
       click_trans_id,
+      code: serviceData.code || null, // Copy uchun kod qo'shamiz
     };
 
     console.log("🔔 WebSocket eventi yuborilmoqda:", websocketData);
@@ -682,6 +773,82 @@ router.post("/get-scan-link", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Get scan link xatolik:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+    });
+  }
+});
+
+// YANGI: Copy uchun to'lov havolasini olish
+router.post("/get-copy-link", async (req, res) => {
+  try {
+    const { code, amount } = req.body;
+    console.log(`🔍 Copy link so'ralmoqda: code=${code}, amount=${amount}`);
+
+    if (!code || !amount) {
+      console.log("❌ Code yoki amount kiritilmagan");
+      return res.status(400).json({
+        status: "error",
+        message: "code va amount kiritish majburiy",
+      });
+    }
+
+    // Amount ni tekshirish
+    if (+amount < 100) {
+      return res.status(400).json({
+        status: "error",
+        message: "Minimum to'lov summasi 100 so'm",
+      });
+    }
+
+    const findCopyWithCode = await copyModel.findOne({ code: code });
+    if (!findCopyWithCode) {
+      console.log(`❌ Copy topilmadi: code=${code}`);
+      return res.status(404).json({
+        status: "error",
+        message: "Copy topilmadi",
+      });
+    }
+
+    // Copy allaqachon to'langanligini tekshirish
+    const existingPayment = await paidModel.findOne({
+      "serviceData._id": findCopyWithCode._id,
+      status: "paid",
+    });
+
+    if (existingPayment) {
+      console.log(`❌ Copy allaqachon to'langan: code=${code}`);
+      return res.status(400).json({
+        status: "error",
+        message: "Bu copy uchun to'lov allaqachon amalga oshirilgan",
+      });
+    }
+
+    // TO'G'RI Click URL format
+    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&transaction_param=${findCopyWithCode._id}`;
+
+    console.log(`✅ Copy QR kod yaratildi:`, {
+      copyId: findCopyWithCode._id,
+      code,
+      apparatId: findCopyWithCode.apparatId,
+      amount,
+      service_id: SERVICE_ID,
+      merchant_id: MERCHANT_ID,
+    });
+
+    return res.json({
+      status: "success",
+      data: {
+        payment_url: qrCode,
+        order_id: findCopyWithCode._id,
+        amount: +amount,
+        code,
+        apparatId: findCopyWithCode.apparatId,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Get copy link xatolik:", error);
     res.status(500).json({
       status: "error",
       message: error.message,
