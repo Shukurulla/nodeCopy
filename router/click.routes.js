@@ -473,14 +473,6 @@ router.post("/complete", async (req, res) => {
     } else if (fileType === "scanned_file") {
       apparatId = serviceData.apparatId || "scan-device";
       console.log(`📄 Scan file uchun apparatId: ${apparatId}`);
-
-      // Scan file ni o'chirish
-      try {
-        await scanFileModel.findByIdAndDelete(serviceData._id);
-        console.log(`🗑️ Scanned file o'chirildi: ${serviceData._id}`);
-      } catch (deleteError) {
-        console.error("❌ Scan file o'chirishda xatolik:", deleteError);
-      }
     }
 
     // WebSocket eventi yuborish
