@@ -63,10 +63,14 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       return res.status(400).json({ error: "Bu kod allaqachon ishlatilgan" });
     }
 
-    // Fayl yo‘lini saqlash
+    // Header yoki body dan apparatId olish
+    const apparatId = req.headers["apparatid"] || req.body.apparatId;
+
+    // Fayl yo'lini saqlash
     const scanFile = await scanFileModel.create({
       code,
       file: file.path,
+      apparatId: apparatId || undefined,
     });
 
     res.json({ message: "Fayl saqlandi", data: scanFile });
