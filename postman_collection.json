@@ -1,0 +1,827 @@
+{
+  "info": {
+    "name": "Flash Print - ATM & Admin API",
+    "description": "Flash Print vending apparat (ATM) va Admin panel uchun API to'plami.\n\nATM tomonidan ishlatiladigan va Admin paneldan boshqariladigan barcha API endpointlar.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8008",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Admin",
+      "description": "Admin autentifikatsiya API lari",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.muvaffaqiyat && jsonData.malumot && jsonData.malumot.token) {",
+                  "    pm.collectionVariables.set('token', jsonData.malumot.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "login"]
+            },
+            "description": "Admin tizimga kirish. Javobdagi token avtomatik saqlanadi."
+          },
+          "response": []
+        },
+        {
+          "name": "Admin Signup",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/signup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "signup"]
+            },
+            "description": "Yangi admin yaratish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Narxlar (Settings)",
+      "description": "Xizmat narxlarini boshqarish - ATM summalarni shu API dan oladi",
+      "item": [
+        {
+          "name": "[ATM] Narxlarni olish",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "settings"]
+            },
+            "description": "ATM tomonidan narxlarni olish uchun. Auth kerak emas.\n\nJavob:\n```json\n{\n  \"muvaffaqiyat\": true,\n  \"malumot\": {\n    \"printOneSide\": 500,\n    \"printTwoSide\": 800,\n    \"scanOneSide\": 500,\n    \"scanTwoSide\": 800,\n    \"copyOneSide\": 500,\n    \"copyTwoSide\": 800\n  }\n}\n```\n\nMaydonlar:\n- printOneSide: 1 bet bir tarafiga chop etish narxi (so'm)\n- printTwoSide: 1 bet ikkala tarafiga chop etish narxi (so'm)\n- scanOneSide: 1 bet faqat bir tarafini skanerlash narxi (so'm)\n- scanTwoSide: 1 bet orqa-oldi skanerlash narxi (so'm)\n- copyOneSide: 1 bet faqat bir tarafini nusxalash narxi (so'm)\n- copyTwoSide: 1 bet orqa-oldi nusxalash narxi (so'm)"
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Narxlarni yangilash",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"printOneSide\": 500,\n  \"printTwoSide\": 800,\n  \"scanOneSide\": 500,\n  \"scanTwoSide\": 800,\n  \"copyOneSide\": 500,\n  \"copyTwoSide\": 800\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "settings"]
+            },
+            "description": "Admin paneldan narxlarni yangilash. Auth (Bearer token) kerak.\n\nBarcha maydonlar ixtiyoriy - faqat o'zgartirmoqchi bo'lganlarnigina yuboring.\n\nMaydonlar:\n- printOneSide: 1 bet bir tarafiga chop etish narxi (so'm)\n- printTwoSide: 1 bet ikkala tarafiga chop etish narxi (so'm)\n- scanOneSide: 1 bet faqat bir tarafini skanerlash narxi (so'm)\n- scanTwoSide: 1 bet orqa-oldi skanerlash narxi (so'm)\n- copyOneSide: 1 bet faqat bir tarafini nusxalash narxi (so'm)\n- copyTwoSide: 1 bet orqa-oldi nusxalash narxi (so'm)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Qog'oz boshqaruvi",
+      "description": "ATM dagi qog'oz sonini boshqarish",
+      "item": [
+        {
+          "name": "[ATM] Qog'oz qoldig'ini olish",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat/:apparatId/qogoz-qoldiq",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat", ":apparatId", "qogoz-qoldiq"],
+              "variable": [
+                {
+                  "key": "apparatId",
+                  "value": "ATM001",
+                  "description": "Vending apparat ID si"
+                }
+              ]
+            },
+            "description": "ATM da qancha bet qog'oz qolganini ko'rsatadi.\n\nJavob:\n```json\n{\n  \"muvaffaqiyat\": true,\n  \"malumot\": {\n    \"apparatId\": \"ATM001\",\n    \"nomi\": \"Apparat 1\",\n    \"joriyQogozSoni\": 750,\n    \"qogozSigimi\": 1000,\n    \"kamQogozChegarasi\": 200,\n    \"qogozFoiz\": 75,\n    \"kamQoldimi\": false\n  }\n}\n```\n\nMaydonlar:\n- joriyQogozSoni: Hozirda qancha qog'oz bor\n- qogozSigimi: Maksimal sig'im\n- kamQogozChegarasi: Kam qog'oz ogohlantirish chegarasi\n- qogozFoiz: Foizda qancha qog'oz qolgan\n- kamQoldimi: Qog'oz kam qolganmi (true/false)"
+          },
+          "response": []
+        },
+        {
+          "name": "[Admin] Qog'oz sonini yangilash",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"soni\": 500,\n  \"add\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat/:id/qogoz",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat", ":id", "qogoz"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "Vending apparat MongoDB _id si"
+                }
+              ]
+            },
+            "description": "Apparatdagi qog'oz sonini yangilash.\n\n- add=true: Qo'shish (mavjud songa qo'shiladi)\n- add=false yoki ko'rsatilmasa: To'g'ridan-to'g'ri o'rnatish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Vending Apparat",
+      "description": "Vending apparatlarni boshqarish",
+      "item": [
+        {
+          "name": "Barcha apparatlarni olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat"]
+            },
+            "description": "Barcha vending apparatlar ro'yxatini olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Apparat ma'lumotini olish (ID bo'yicha)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "Vending apparat MongoDB _id si"
+                }
+              ]
+            },
+            "description": "Bitta vending apparat ma'lumotlarini olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Yangi apparat yaratish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apparatId\": \"ATM001\",\n  \"nomi\": \"Flash Print - Toshkent\",\n  \"manzil\": \"Toshkent shahar, Chilonzor tumani\",\n  \"holati\": \"faol\",\n  \"qogozSigimi\": 1000,\n  \"joriyQogozSoni\": 1000,\n  \"kamQogozChegarasi\": 200\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat"]
+            },
+            "description": "Yangi vending apparat qo'shish.\n\nholati qiymatlari: faol, tamirlashda, ishlamayapti"
+          },
+          "response": []
+        },
+        {
+          "name": "Apparatni tahrirlash",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nomi\": \"Flash Print - Toshkent (yangilangan)\",\n  \"manzil\": \"Toshkent shahar, Yunusobod tumani\",\n  \"holati\": \"faol\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "Vending apparat MongoDB _id si"
+                }
+              ]
+            },
+            "description": "Mavjud vending apparat ma'lumotlarini tahrirlash"
+          },
+          "response": []
+        },
+        {
+          "name": "Apparatni o'chirish",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "Vending apparat MongoDB _id si"
+                }
+              ]
+            },
+            "description": "Vending apparatni o'chirish"
+          },
+          "response": []
+        },
+        {
+          "name": "Apparat statistikasi",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vending-apparat/:id/statistika?davr=kun",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vending-apparat", ":id", "statistika"],
+              "query": [
+                {
+                  "key": "davr",
+                  "value": "kun",
+                  "description": "Davr: kun, hafta, oy, yil"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "Vending apparat MongoDB _id si"
+                }
+              ]
+            },
+            "description": "Apparat statistikasini davrlar bo'yicha olish.\n\nDavr qiymatlari: kun, hafta, oy, yil"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Copy (Nusxa kodlari)",
+      "description": "Nusxalash kodlarini boshqarish",
+      "item": [
+        {
+          "name": "Yangi kod yaratish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apparatId\": \"ATM001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/copy/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "copy", "create"]
+            },
+            "description": "Nusxalash uchun 5 xonali unikal kod yaratish"
+          },
+          "response": []
+        },
+        {
+          "name": "Kod bo'yicha ma'lumot olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/copy/get-by-code/:code",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "copy", "get-by-code", ":code"],
+              "variable": [
+                {
+                  "key": "code",
+                  "value": "12345",
+                  "description": "5 xonali kod"
+                }
+              ]
+            },
+            "description": "Kod bo'yicha nusxa ma'lumotlarini olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Barcha kodlarni olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/copy/all?apparatId=ATM001&status=pending",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "copy", "all"],
+              "query": [
+                {
+                  "key": "apparatId",
+                  "value": "ATM001",
+                  "description": "Apparat ID si (ixtiyoriy)"
+                },
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "Status: pending yoki paid (ixtiyoriy)"
+                }
+              ]
+            },
+            "description": "Barcha nusxa kodlarini filterlash bilan olish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Scan File",
+      "description": "Skanerlangan fayllarni boshqarish",
+      "item": [
+        {
+          "name": "Skan kod yaratish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/scan-file/generate",
+              "host": ["{{baseUrl}}"],
+              "path": ["scan-file", "generate"]
+            },
+            "description": "Skanerlash uchun unikal 5 xonali kod yaratish"
+          },
+          "response": []
+        },
+        {
+          "name": "Skan fayl yuklash",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Skanerlangan fayl"
+                },
+                {
+                  "key": "code",
+                  "value": "12345",
+                  "type": "text",
+                  "description": "5 xonali kod"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/scan-file/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["scan-file", "upload"]
+            },
+            "description": "Skanerlangan faylni serverga yuklash. Maksimal hajm: 100MB"
+          },
+          "response": []
+        },
+        {
+          "name": "Barcha skan fayllarni olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/scan-file/scan-files",
+              "host": ["{{baseUrl}}"],
+              "path": ["scan-file", "scan-files"]
+            },
+            "description": "Barcha skanerlangan fayllar ro'yxatini olish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "To'lovlar",
+      "description": "To'lovlarni boshqarish",
+      "item": [
+        {
+          "name": "Barcha to'lovlarni olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/paid/all",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "paid", "all"]
+            },
+            "description": "Barcha to'lovlar ro'yxatini olish"
+          },
+          "response": []
+        },
+        {
+          "name": "To'lov statusini yangilash",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"paid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/paid/:id/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "paid", ":id", "status"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "To'lov MongoDB _id si"
+                }
+              ]
+            },
+            "description": "To'lov statusini yangilash"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Click to'lov",
+      "description": "Click orqali to'lov linklarini yaratish",
+      "item": [
+        {
+          "name": "Fayl uchun Click link olish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"order_mongo_id\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/click/get-file-link",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "click", "get-file-link"]
+            },
+            "description": "Fayl chop etish uchun Click to'lov linkini yaratish"
+          },
+          "response": []
+        },
+        {
+          "name": "Skan uchun Click link olish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"12345\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/click/get-scan-link",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "click", "get-scan-link"]
+            },
+            "description": "Skan fayl uchun Click to'lov linkini yaratish"
+          },
+          "response": []
+        },
+        {
+          "name": "Nusxa uchun Click link olish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"12345\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/click/get-copy-link",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "click", "get-copy-link"]
+            },
+            "description": "Nusxalash uchun Click to'lov linkini yaratish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payme to'lov",
+      "description": "Payme orqali to'lov linklarini yaratish",
+      "item": [
+        {
+          "name": "Fayl uchun Payme link olish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"order_mongo_id\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payme/get-payme-link",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payme", "get-payme-link"]
+            },
+            "description": "Fayl chop etish uchun Payme to'lov linkini yaratish"
+          },
+          "response": []
+        },
+        {
+          "name": "Skan uchun Payme link olish",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"12345\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/payme/get-scan-payme-link",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payme", "get-scan-payme-link"]
+            },
+            "description": "Skan fayl uchun Payme to'lov linkini yaratish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Statistika",
+      "description": "Statistika va hisobotlar",
+      "item": [
+        {
+          "name": "Umumiy statistika",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/statistika?davr=oy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "statistika"],
+              "query": [
+                {
+                  "key": "davr",
+                  "value": "oy",
+                  "description": "Davr: kun, hafta, oy, yil"
+                },
+                {
+                  "key": "apparatId",
+                  "value": "",
+                  "description": "Apparat ID si (ixtiyoriy)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Umumiy statistikani davrlar bo'yicha olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Guruhlangan statistika",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/statistika/guruh?davr=kun",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "statistika", "guruh"],
+              "query": [
+                {
+                  "key": "davr",
+                  "value": "kun",
+                  "description": "Davr: kun, hafta, oy, yil"
+                },
+                {
+                  "key": "apparatId",
+                  "value": "",
+                  "description": "Apparat ID si (ixtiyoriy)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Guruhlangan statistikani olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Apparatlar bo'yicha statistika",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/statistika/apparatlar?davr=oy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "statistika", "apparatlar"],
+              "query": [
+                {
+                  "key": "davr",
+                  "value": "oy",
+                  "description": "Davr: kun, hafta, oy, yil"
+                }
+              ]
+            },
+            "description": "Har bir apparat bo'yicha statistikani olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Kunlik statistika (oxirgi 30 kun)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/statistika/kunlik?apparatId=ATM001",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "statistika", "kunlik"],
+              "query": [
+                {
+                  "key": "apparatId",
+                  "value": "ATM001",
+                  "description": "Apparat ID si (ixtiyoriy)"
+                }
+              ]
+            },
+            "description": "Oxirgi 30 kunlik statistikani olish"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Fayllar",
+      "description": "Yuklangan fayllarni boshqarish",
+      "item": [
+        {
+          "name": "Apparat fayllarini olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/files?apparatId=ATM001",
+              "host": ["{{baseUrl}}"],
+              "path": ["files"],
+              "query": [
+                {
+                  "key": "apparatId",
+                  "value": "ATM001",
+                  "description": "Apparat ID si"
+                }
+              ]
+            },
+            "description": "Ma'lum apparat uchun barcha fayllarni olish"
+          },
+          "response": []
+        },
+        {
+          "name": "Barcha fayllarni olish (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/files",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "files"]
+            },
+            "description": "Barcha fayllar ro'yxatini olish (admin uchun)"
+          },
+          "response": []
+        },
+        {
+          "name": "Faylni yuklab olish",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/download/:fileId",
+              "host": ["{{baseUrl}}"],
+              "path": ["download", ":fileId"],
+              "variable": [
+                {
+                  "key": "fileId",
+                  "value": "",
+                  "description": "Telegram fayl ID si"
+                }
+              ]
+            },
+            "description": "Faylni yuklab olish"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

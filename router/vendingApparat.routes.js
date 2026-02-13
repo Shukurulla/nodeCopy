@@ -132,6 +132,38 @@ router.get("/:id/statistika", async (req, res) => {
   }
 });
 
+// ATM da qancha qog'oz qolganini olish (apparatId bo'yicha)
+router.get("/:apparatId/qogoz-qoldiq", async (req, res) => {
+  try {
+    const apparat = await VendingApparat.findOne({
+      apparatId: req.params.apparatId,
+    });
+
+    if (!apparat) {
+      return res
+        .status(404)
+        .json({ muvaffaqiyat: false, xabar: "Apparat topilmadi" });
+    }
+
+    res.json({
+      muvaffaqiyat: true,
+      malumot: {
+        apparatId: apparat.apparatId,
+        nomi: apparat.nomi,
+        joriyQogozSoni: apparat.joriyQogozSoni,
+        qogozSigimi: apparat.qogozSigimi,
+        kamQogozChegarasi: apparat.kamQogozChegarasi,
+        qogozFoiz: Math.round(
+          (apparat.joriyQogozSoni / apparat.qogozSigimi) * 100
+        ),
+        kamQoldimi: apparat.joriyQogozSoni <= apparat.kamQogozChegarasi,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ muvaffaqiyat: false, xabar: error.message });
+  }
+});
+
 // Apparatni tahrirlash
 router.put("/:id", async (req, res) => {
   try {
