@@ -2,9 +2,11 @@ import express from "express";
 import paidModel from "../model/paid.model.js";
 import File from "../model/file.model.js";
 import scanFileModel from "../model/scanFile.model.js";
-import copyModel from "../model/copy.model.js"; // YANGI IMPORT
+import copyModel from "../model/copy.model.js";
 import Statistika from "../model/statistika.model.js";
 import VendingApparat from "../model/vendingApparat.model.js";
+import Admin from "../model/admin.model.js";
+import { decrypt } from "../utils/encryption.js";
 import md5 from "md5";
 import { ClickError } from "../enum/transaction.enum.js";
 import mongoose from "mongoose";
@@ -14,39 +16,49 @@ const router = express.Router();
 // Barcha so'rovlarni log qilish middleware
 router.use((req, res, next) => {
   console.log("=".repeat(80));
-  console.log(`📨 CLICK SO'ROV KELDI:`, {
+  console.log(`CLICK SO'ROV KELDI:`, {
     method: req.method,
     url: req.url,
-    ip: req.ip || req.connection.remoteAddress,
-    userAgent: req.get("User-Agent"),
     timestamp: new Date().toISOString(),
   });
-  console.log("📋 Headers:", JSON.stringify(req.headers, null, 2));
-  console.log("📝 Body:", JSON.stringify(req.body, null, 2));
+  console.log("Body:", JSON.stringify(req.body, null, 2));
   console.log("=".repeat(80));
   next();
 });
 
-// Environment variables tekshirish
-const CLICK_SECRET_KEY = process.env.CLICK_SECRET_KEY || "cCmLS75coPW7E";
-const SERVICE_ID = process.env.CLICK_SERVICE_ID || "71257";
-const MERCHANT_ID = process.env.CLICK_MERCHANT_ID || "38721";
+// Fallback credentials (env dan)
+const FALLBACK_SECRET_KEY = process.env.CLICK_SECRET_KEY || "cCmLS75coPW7E";
+const FALLBACK_SERVICE_ID = process.env.CLICK_SERVICE_ID || "71257";
+const FALLBACK_MERCHANT_ID = process.env.CLICK_MERCHANT_ID || "38721";
 
-if (!CLICK_SECRET_KEY) {
-  console.error(
-    "❌ XATOLIK: CLICK_SECRET_KEY environment variable sozlanmagan!"
-  );
-  process.exit(1);
+// Apparatdan admin Click credentials olish
+async function getClickCredentials(apparatId) {
+  try {
+    if (!apparatId) return null;
+
+    const apparat = await VendingApparat.findOne({ apparatId });
+    if (!apparat || !apparat.adminId) return null;
+
+    const admin = await Admin.findById(apparat.adminId);
+    if (!admin || !admin.clickCredentials) return null;
+
+    const creds = admin.clickCredentials;
+    const secretKey = decrypt(creds.secretKey);
+    const serviceId = decrypt(creds.serviceId);
+    const merchantId = decrypt(creds.merchantId);
+
+    // Agar credentials bo'sh bo'lsa, null qaytarish (fallback ishlatiladi)
+    if (!secretKey || !serviceId || !merchantId) return null;
+
+    return { secretKey, serviceId, merchantId };
+  } catch (error) {
+    console.error("Click credentials olishda xatolik:", error);
+    return null;
+  }
 }
 
-console.log("🔧 Click sozlamalari:", {
-  SERVICE_ID,
-  MERCHANT_ID,
-  SECRET_KEY_LENGTH: CLICK_SECRET_KEY.length,
-});
-
-// Signature tekshirish funksiyasi - Click dokumentatsiyasiga mos
-const clickCheckToken = (data, signString) => {
+// Signature tekshirish funksiyasi - dinamik secretKey bilan
+const clickCheckToken = (data, signString, secretKey) => {
   try {
     const {
       click_trans_id,
@@ -60,50 +72,60 @@ const clickCheckToken = (data, signString) => {
 
     const prepareId = merchant_prepare_id || "";
 
-    // Click dokumentatsiyasiga mos signature yaratish
     let signature;
     if (action === "0" || action === 0) {
-      // PREPARE
-      signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${merchant_trans_id}${amount}${action}${sign_time}`;
+      signature = `${click_trans_id}${service_id}${secretKey}${merchant_trans_id}${amount}${action}${sign_time}`;
     } else {
-      // COMPLETE
-      signature = `${click_trans_id}${service_id}${CLICK_SECRET_KEY}${merchant_trans_id}${prepareId}${amount}${action}${sign_time}`;
+      signature = `${click_trans_id}${service_id}${secretKey}${merchant_trans_id}${prepareId}${amount}${action}${sign_time}`;
     }
 
     const signatureHash = md5(signature);
 
-    console.log("🔐 Signature tekshirish:", {
-      click_trans_id,
-      service_id,
-      merchant_trans_id,
-      prepareId,
-      amount,
-      action,
-      sign_time,
-      signature_string: signature,
-      calculated_hash: signatureHash,
-      received_hash: signString,
+    console.log("Signature tekshirish:", {
       is_valid: signatureHash === signString,
     });
 
     return signatureHash === signString;
   } catch (error) {
-    console.error("❌ Signature tekshirishda xatolik:", error);
+    console.error("Signature tekshirishda xatolik:", error);
     return false;
   }
 };
 
-// MUHIM: JSON FORMATDA JAVOB YUBORISH
 const sendClickResponse = (result, res) => {
-  console.log("📤 Click javob yuborilmoqda (JSON):", result);
-
-  // CLICK SUPPORT KO'RSATMASI BO'YICHA JSON FORMATDA JAVOB
+  console.log("Click javob:", result);
   res.status(200).json(result);
 };
 
+// File/Scan/Copy dan apparatId topish
+async function findServiceData(merchantTransId) {
+  let serviceData = null;
+  let fileType = null;
+
+  const uploadedFile = await File.findById(merchantTransId);
+  if (uploadedFile) {
+    serviceData = uploadedFile;
+    fileType = "uploaded_file";
+  } else {
+    const scannedFile = await scanFileModel.findById(merchantTransId);
+    if (scannedFile) {
+      serviceData = scannedFile;
+      fileType = "scanned_file";
+    } else {
+      const copyFile = await copyModel.findById(merchantTransId);
+      if (copyFile) {
+        serviceData = copyFile;
+        fileType = "copy_file";
+      }
+    }
+  }
+
+  return { serviceData, fileType };
+}
+
 // PREPARE ENDPOINT
 router.post("/prepare", async (req, res) => {
-  console.log("🚀 PREPARE ENDPOINT ISHGA TUSHDI");
+  console.log("PREPARE ENDPOINT ISHGA TUSHDI");
 
   try {
     const data = req.body;
@@ -117,17 +139,6 @@ router.post("/prepare", async (req, res) => {
       sign_string,
     } = data;
 
-    console.log("📊 Prepare parametrlari:", {
-      click_trans_id,
-      service_id,
-      merchant_trans_id,
-      amount,
-      action,
-      sign_time,
-      sign_string,
-    });
-
-    // Majburiy parametrlarni tekshirish
     if (
       !click_trans_id ||
       !service_id ||
@@ -137,26 +148,34 @@ router.post("/prepare", async (req, res) => {
       !sign_time ||
       !sign_string
     ) {
-      console.log("❌ Ba'zi parametrlar yo'q");
       return sendClickResponse(
-        {
-          error: ClickError.BadRequest,
-          error_note: "Missing required parameters",
-        },
+        { error: ClickError.BadRequest, error_note: "Missing required parameters" },
         res
       );
     }
 
-    // Service ID tekshirish
-    if (service_id !== SERVICE_ID) {
-      console.log(
-        `❌ Noto'g'ri service_id: ${service_id}, kutilgan: ${SERVICE_ID}`
-      );
+    // File topish va credentials olish
+    const { serviceData, fileType } = await findServiceData(merchant_trans_id);
+
+    if (!serviceData) {
       return sendClickResponse(
-        {
-          error: ClickError.BadRequest,
-          error_note: "Invalid service_id",
-        },
+        { error: ClickError.UserNotFound, error_note: "Order not found" },
+        res
+      );
+    }
+
+    // Dinamik credentials olish (apparat → admin → click creds)
+    const apparatId = serviceData.apparatId;
+    const creds = await getClickCredentials(apparatId);
+
+    const activeSecretKey = creds?.secretKey || FALLBACK_SECRET_KEY;
+    const activeServiceId = creds?.serviceId || FALLBACK_SERVICE_ID;
+
+    // Service ID tekshirish
+    if (service_id !== activeServiceId) {
+      console.log(`Noto'g'ri service_id: ${service_id}, kutilgan: ${activeServiceId}`);
+      return sendClickResponse(
+        { error: ClickError.BadRequest, error_note: "Invalid service_id" },
         res
       );
     }
@@ -171,58 +190,11 @@ router.post("/prepare", async (req, res) => {
       sign_time,
     };
 
-    const isValid = clickCheckToken(signatureData, sign_string);
+    const isValid = clickCheckToken(signatureData, sign_string, activeSecretKey);
 
     if (!isValid) {
-      console.log("❌ Prepare: Invalid signature");
       return sendClickResponse(
-        {
-          error: ClickError.SignFailed,
-          error_note: "Invalid signature",
-        },
-        res
-      );
-    }
-
-    // File yoki scan file yoki copy mavjudligini tekshirish
-    let serviceData = null;
-    let fileType = null;
-
-    // Birinchi uploaded file dan qidirish
-    const uploadedFile = await File.findById(merchant_trans_id);
-    if (uploadedFile) {
-      serviceData = uploadedFile;
-      fileType = "uploaded_file";
-    } else {
-      // Agar uploaded file topilmasa, scan file dan qidirish
-      const scannedFile = await scanFileModel.findById(merchant_trans_id);
-      if (scannedFile) {
-        serviceData = scannedFile;
-        fileType = "scanned_file";
-      } else {
-        // YANGI: Copy file dan qidirish
-        const copyFile = await copyModel.findById(merchant_trans_id);
-        if (copyFile) {
-          serviceData = copyFile;
-          fileType = "copy_file";
-        }
-      }
-    }
-
-    console.log("🔍 File tekshirish natijasi:", {
-      merchant_trans_id,
-      serviceData: !!serviceData,
-      fileType,
-      serviceDataId: serviceData?._id,
-    });
-
-    if (!serviceData) {
-      console.log("❌ Prepare: File topilmadi");
-      return sendClickResponse(
-        {
-          error: ClickError.UserNotFound,
-          error_note: "Order not found",
-        },
+        { error: ClickError.SignFailed, error_note: "Invalid signature" },
         res
       );
     }
@@ -234,45 +206,28 @@ router.post("/prepare", async (req, res) => {
     });
 
     if (existingPayment) {
-      console.log("❌ Prepare: Allaqachon to'langan");
       return sendClickResponse(
-        {
-          error: ClickError.AlreadyPaid,
-          error_note: "Already paid",
-        },
+        { error: ClickError.AlreadyPaid, error_note: "Already paid" },
         res
       );
     }
 
-    // Muvaffaqiyatli prepare
     const merchant_prepare_id = new Date().getTime();
 
-    console.log("✅ Prepare muvaffaqiyatli:", {
-      click_trans_id,
-      merchant_trans_id,
-      merchant_prepare_id,
-      amount,
-      fileType,
-    });
-
-    // CLICK SUPPORT KO'RSATMASI BO'YICHA JAVOB
     return sendClickResponse(
       {
-        click_trans_id: click_trans_id,
-        merchant_trans_id: merchant_trans_id,
-        merchant_prepare_id: merchant_prepare_id,
+        click_trans_id,
+        merchant_trans_id,
+        merchant_prepare_id,
         error: ClickError.Success,
         error_note: "Success",
       },
       res
     );
   } catch (error) {
-    console.error("❌ Prepare umumiy xatolik:", error);
+    console.error("Prepare umumiy xatolik:", error);
     return sendClickResponse(
-      {
-        error: ClickError.TransactionCanceled,
-        error_note: "Technical error",
-      },
+      { error: ClickError.TransactionCanceled, error_note: "Technical error" },
       res
     );
   }
@@ -280,7 +235,7 @@ router.post("/prepare", async (req, res) => {
 
 // COMPLETE ENDPOINT
 router.post("/complete", async (req, res) => {
-  console.log("🏁 COMPLETE ENDPOINT ISHGA TUSHDI");
+  console.log("COMPLETE ENDPOINT ISHGA TUSHDI");
 
   try {
     const data = req.body;
@@ -296,28 +251,26 @@ router.post("/complete", async (req, res) => {
       error: click_error,
     } = data;
 
-    console.log("📊 Complete parametrlari:", {
-      click_trans_id,
-      service_id,
-      merchant_trans_id,
-      merchant_prepare_id,
-      amount,
-      action,
-      sign_time,
-      click_error,
-    });
-
-    // Click tomonidan xatolik bo'lsa
     if (click_error && click_error !== "0" && click_error !== 0) {
-      console.log(`❌ Click tomonidan xatolik: ${click_error}`);
       return sendClickResponse(
-        {
-          error: ClickError.TransactionCanceled,
-          error_note: "Transaction failed by Click",
-        },
+        { error: ClickError.TransactionCanceled, error_note: "Transaction failed by Click" },
         res
       );
     }
+
+    // File topish va credentials olish
+    const { serviceData, fileType } = await findServiceData(merchant_trans_id);
+
+    if (!serviceData) {
+      return sendClickResponse(
+        { error: ClickError.UserNotFound, error_note: "Order not found" },
+        res
+      );
+    }
+
+    const apparatId = serviceData.apparatId;
+    const creds = await getClickCredentials(apparatId);
+    const activeSecretKey = creds?.secretKey || FALLBACK_SECRET_KEY;
 
     // Signature tekshirish
     const signatureData = {
@@ -330,49 +283,11 @@ router.post("/complete", async (req, res) => {
       sign_time,
     };
 
-    const isValid = clickCheckToken(signatureData, sign_string);
+    const isValid = clickCheckToken(signatureData, sign_string, activeSecretKey);
 
     if (!isValid) {
-      console.log("❌ Complete: Invalid signature");
       return sendClickResponse(
-        {
-          error: ClickError.SignFailed,
-          error_note: "Invalid signature",
-        },
-        res
-      );
-    }
-
-    // File mavjudligini tekshirish
-    let serviceData = null;
-    let fileType = null;
-
-    const uploadedFile = await File.findById(merchant_trans_id);
-    if (uploadedFile) {
-      serviceData = uploadedFile;
-      fileType = "uploaded_file";
-    } else {
-      const scannedFile = await scanFileModel.findById(merchant_trans_id);
-      if (scannedFile) {
-        serviceData = scannedFile;
-        fileType = "scanned_file";
-      } else {
-        // YANGI: Copy file dan qidirish
-        const copyFile = await copyModel.findById(merchant_trans_id);
-        if (copyFile) {
-          serviceData = copyFile;
-          fileType = "copy_file";
-        }
-      }
-    }
-
-    if (!serviceData) {
-      console.log("❌ Complete: Service data topilmadi");
-      return sendClickResponse(
-        {
-          error: ClickError.UserNotFound,
-          error_note: "Order not found",
-        },
+        { error: ClickError.SignFailed, error_note: "Invalid signature" },
         res
       );
     }
@@ -384,11 +299,10 @@ router.post("/complete", async (req, res) => {
     });
 
     if (existingPayment) {
-      console.log("❌ Complete: Allaqachon to'langan");
       return sendClickResponse(
         {
-          click_trans_id: click_trans_id,
-          merchant_trans_id: merchant_trans_id,
+          click_trans_id,
+          merchant_trans_id,
           merchant_confirm_id: merchant_prepare_id,
           error: ClickError.AlreadyPaid,
           error_note: "Already paid",
@@ -398,7 +312,6 @@ router.post("/complete", async (req, res) => {
     }
 
     // To'lovni saqlash
-    console.log("💾 To'lovni bazaga saqlash...");
     const payment = await paidModel.create({
       status: "paid",
       serviceData: serviceData,
@@ -408,17 +321,9 @@ router.post("/complete", async (req, res) => {
       paymentMethod: "click",
     });
 
-    console.log("✅ To'lov saqlandi:", payment._id);
-
     // Statistika va apparat logikasi
-    let apparatId = null;
-
-    if (fileType === "uploaded_file") {
-      apparatId = serviceData.apparatId;
-      console.log(`📁 File upload uchun logika: apparatId=${apparatId}`);
-
+    if (fileType === "uploaded_file" || fileType === "copy_file") {
       try {
-        // Statistika yangilash
         const bugun = new Date();
         bugun.setHours(0, 0, 0, 0);
 
@@ -428,7 +333,6 @@ router.post("/complete", async (req, res) => {
         });
 
         if (!statistika) {
-          console.log("📊 Yangi statistika yaratilmoqda");
           statistika = new Statistika({
             apparatId,
             sana: bugun,
@@ -437,29 +341,20 @@ router.post("/complete", async (req, res) => {
             ishlatilganQogoz: 1,
           });
         } else {
-          console.log("📊 Mavjud statistika yangilanmoqda");
           statistika.foydalanishSoni += 1;
           statistika.daromad += +amount;
           statistika.ishlatilganQogoz += 1;
         }
 
         await statistika.save();
-        console.log("✅ Statistika saqlandi");
 
         // Apparat qog'oz sonini kamaytirish
         const apparat = await VendingApparat.findOne({ apparatId });
         if (apparat && apparat.joriyQogozSoni > 0) {
-          console.log(
-            `📄 Qog'oz soni: ${apparat.joriyQogozSoni} -> ${
-              apparat.joriyQogozSoni - 1
-            }`
-          );
           apparat.joriyQogozSoni -= 1;
           await apparat.save();
 
-          // Qog'oz kam qolganda ogohlantirish
           if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
-            console.log("⚠️ Qog'oz kam qoldi, WebSocket xabar yuborilmoqda");
             try {
               req.app.get("io").emit("qogozKam", {
                 apparatId,
@@ -467,101 +362,23 @@ router.post("/complete", async (req, res) => {
                 xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`,
               });
             } catch (socketError) {
-              console.error(
-                "❌ WebSocket qog'oz kam xabari xatoligi:",
-                socketError
-              );
+              console.error("WebSocket qog'oz kam xabari xatoligi:", socketError);
             }
           }
         }
       } catch (statsError) {
-        console.error("❌ Statistika xatoligi:", statsError);
+        console.error("Statistika xatoligi:", statsError);
       }
 
-      // File ni o'chirish
+      // File/Copy ni o'chirish
       try {
-        await File.findByIdAndDelete(serviceData._id);
-        console.log(`🗑️ Uploaded file o'chirildi: ${serviceData._id}`);
-      } catch (deleteError) {
-        console.error("❌ File o'chirishda xatolik:", deleteError);
-      }
-    } else if (fileType === "scanned_file") {
-      apparatId = serviceData.apparatId || "scan-device";
-      console.log(`📄 Scan file uchun apparatId: ${apparatId}`);
-    } else if (fileType === "copy_file") {
-      // YANGI: Copy file uchun logika
-      apparatId = serviceData.apparatId;
-      console.log(`📋 Copy file uchun logika: apparatId=${apparatId}`);
-
-      try {
-        // Statistika yangilash
-        const bugun = new Date();
-        bugun.setHours(0, 0, 0, 0);
-
-        let statistika = await Statistika.findOne({
-          apparatId,
-          sana: { $gte: bugun },
-        });
-
-        if (!statistika) {
-          console.log("📊 Yangi statistika yaratilmoqda (copy)");
-          statistika = new Statistika({
-            apparatId,
-            sana: bugun,
-            foydalanishSoni: 1,
-            daromad: +amount,
-            ishlatilganQogoz: 1,
-          });
+        if (fileType === "uploaded_file") {
+          await File.findByIdAndDelete(serviceData._id);
         } else {
-          console.log("📊 Mavjud statistika yangilanmoqda (copy)");
-          statistika.foydalanishSoni += 1;
-          statistika.daromad += +amount;
-          statistika.ishlatilganQogoz += 1;
+          await copyModel.findByIdAndDelete(serviceData._id);
         }
-
-        await statistika.save();
-        console.log("✅ Statistika saqlandi (copy)");
-
-        // Apparat qog'oz sonini kamaytirish
-        const apparat = await VendingApparat.findOne({ apparatId });
-        if (apparat && apparat.joriyQogozSoni > 0) {
-          console.log(
-            `📄 Qog'oz soni (copy): ${apparat.joriyQogozSoni} -> ${
-              apparat.joriyQogozSoni - 1
-            }`
-          );
-          apparat.joriyQogozSoni -= 1;
-          await apparat.save();
-
-          // Qog'oz kam qolganda ogohlantirish
-          if (apparat.joriyQogozSoni <= apparat.kamQogozChegarasi) {
-            console.log(
-              "⚠️ Qog'oz kam qoldi (copy), WebSocket xabar yuborilmoqda"
-            );
-            try {
-              req.app.get("io").emit("qogozKam", {
-                apparatId,
-                joriyQogozSoni: apparat.joriyQogozSoni,
-                xabar: `Diqqat! ${apparat.nomi} apparatida qog'oz kam qoldi: ${apparat.joriyQogozSoni} ta`,
-              });
-            } catch (socketError) {
-              console.error(
-                "❌ WebSocket qog'oz kam xabari xatoligi (copy):",
-                socketError
-              );
-            }
-          }
-        }
-      } catch (statsError) {
-        console.error("❌ Statistika xatoligi (copy):", statsError);
-      }
-
-      // Copy file ni o'chirish
-      try {
-        await copyModel.findByIdAndDelete(serviceData._id);
-        console.log(`🗑️ Copy file o'chirildi: ${serviceData._id}`);
       } catch (deleteError) {
-        console.error("❌ Copy file o'chirishda xatolik:", deleteError);
+        console.error("File o'chirishda xatolik:", deleteError);
       }
     }
 
@@ -573,41 +390,31 @@ router.post("/complete", async (req, res) => {
       qogozSoni: 1,
       type: fileType,
       click_trans_id,
-      code: serviceData.code || null, // Copy uchun kod qo'shamiz
+      code: serviceData.code || null,
     };
-
-    console.log("🔔 WebSocket eventi yuborilmoqda:", websocketData);
 
     try {
       req.app.get("io").emit("tolovMuvaffaqiyatli", websocketData);
-      console.log("✅ WebSocket eventi yuborildi");
     } catch (socketError) {
-      console.error("❌ WebSocket xatoligi:", socketError);
+      console.error("WebSocket xatoligi:", socketError);
     }
 
-    // Muvaffaqiyatli javob
     const merchant_confirm_id = new Date().getTime();
 
-    console.log("✅ Complete muvaffaqiyatli tugallandi");
-
-    // CLICK SUPPORT KO'RSATMASI BO'YICHA JAVOB
     return sendClickResponse(
       {
-        click_trans_id: click_trans_id,
-        merchant_trans_id: merchant_trans_id,
-        merchant_confirm_id: merchant_confirm_id,
+        click_trans_id,
+        merchant_trans_id,
+        merchant_confirm_id,
         error: ClickError.Success,
         error_note: "Success",
       },
       res
     );
   } catch (error) {
-    console.error("❌ Complete umumiy xatolik:", error);
+    console.error("Complete umumiy xatolik:", error);
     return sendClickResponse(
-      {
-        error: ClickError.TransactionCanceled,
-        error_note: "Technical error",
-      },
+      { error: ClickError.TransactionCanceled, error_note: "Technical error" },
       res
     );
   }
@@ -617,7 +424,6 @@ router.post("/complete", async (req, res) => {
 router.post("/check-payment-status", async (req, res) => {
   try {
     const { order_id } = req.body;
-    console.log(order_id);
 
     if (!order_id) {
       return res.status(400).json({
@@ -638,13 +444,6 @@ router.post("/check-payment-status", async (req, res) => {
       });
     }
 
-    console.log("✅ To'lov topildi:", {
-      paymentId: payment._id,
-      amount: payment.amount,
-      date: payment.date,
-      status: payment.status,
-    });
-
     res.status(200).json({
       status: "success",
       message: "To'landi",
@@ -656,31 +455,23 @@ router.post("/check-payment-status", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Check payment status xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
+    console.error("Check payment status xatolik:", error);
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
-// File upload uchun to'lov havolasini olish
+// File upload uchun to'lov havolasini olish (dinamik credentials)
 router.post("/get-click-link", async (req, res) => {
   try {
     const { orderId, amount } = req.body;
-    console.log(
-      `🔍 File link so'ralmoqda: orderId=${orderId}, amount=${amount}`
-    );
 
     if (!orderId || !amount) {
-      console.log("❌ OrderId yoki amount kiritilmagan");
       return res.status(400).json({
         status: "error",
         message: "orderId va amount kiritish majburiy",
       });
     }
 
-    // Amount ni tekshirish (minimum 100 so'm)
     if (+amount < 100) {
       return res.status(400).json({
         status: "error",
@@ -690,33 +481,20 @@ router.post("/get-click-link", async (req, res) => {
 
     const findFileWithPath = await File.findById(orderId);
     if (!findFileWithPath) {
-      console.log(`❌ File topilmadi: orderId=${orderId}`);
-      return res.status(404).json({
-        status: "error",
-        message: "File topilmadi",
-      });
+      return res.status(404).json({ status: "error", message: "File topilmadi" });
     }
 
-    // TO'G'RI Click URL format
-    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&transaction_param=${findFileWithPath._id}`;
+    // Dinamik credentials
+    const creds = await getClickCredentials(findFileWithPath.apparatId);
+    const serviceId = creds?.serviceId || FALLBACK_SERVICE_ID;
+    const merchantId = creds?.merchantId || FALLBACK_MERCHANT_ID;
 
-    console.log(`✅ File QR kod yaratildi:`, {
-      fileId: findFileWithPath._id,
-      amount,
-      service_id: SERVICE_ID,
-      merchant_id: MERCHANT_ID,
-    });
+    const qrCode = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${findFileWithPath._id}`;
 
-    return res.json({
-      status: "success",
-      data: qrCode,
-    });
+    return res.json({ status: "success", data: qrCode });
   } catch (error) {
-    console.error("❌ Get click link xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
+    console.error("Get click link xatolik:", error);
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
@@ -724,17 +502,14 @@ router.post("/get-click-link", async (req, res) => {
 router.post("/get-scan-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
-    console.log(`🔍 Scan link so'ralmoqda: code=${code}, amount=${amount}`);
 
     if (!code || !amount) {
-      console.log("❌ Code yoki amount kiritilmagan");
       return res.status(400).json({
         status: "error",
         message: "code va amount kiritish majburiy",
       });
     }
 
-    // Amount ni tekshirish
     if (+amount < 100) {
       return res.status(400).json({
         status: "error",
@@ -744,23 +519,15 @@ router.post("/get-scan-link", async (req, res) => {
 
     const findFileWithPath = await scanFileModel.findOne({ code: code });
     if (!findFileWithPath) {
-      console.log(`❌ Scan file topilmadi: code=${code}`);
-      return res.status(404).json({
-        status: "error",
-        message: "Scan file topilmadi",
-      });
+      return res.status(404).json({ status: "error", message: "Scan file topilmadi" });
     }
 
-    // TO'G'RI Click URL format
-    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&transaction_param=${findFileWithPath._id}`;
+    // Dinamik credentials
+    const creds = await getClickCredentials(findFileWithPath.apparatId);
+    const serviceId = creds?.serviceId || FALLBACK_SERVICE_ID;
+    const merchantId = creds?.merchantId || FALLBACK_MERCHANT_ID;
 
-    console.log(`✅ Scan QR kod yaratildi:`, {
-      fileId: findFileWithPath._id,
-      code,
-      amount,
-      service_id: SERVICE_ID,
-      merchant_id: MERCHANT_ID,
-    });
+    const qrCode = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${findFileWithPath._id}`;
 
     return res.json({
       status: "success",
@@ -772,29 +539,23 @@ router.post("/get-scan-link", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Get scan link xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
+    console.error("Get scan link xatolik:", error);
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
-// YANGI: Copy uchun to'lov havolasini olish
+// Copy uchun to'lov havolasini olish
 router.post("/get-copy-link", async (req, res) => {
   try {
     const { code, amount } = req.body;
-    console.log(`🔍 Copy link so'ralmoqda: code=${code}, amount=${amount}`);
 
     if (!code || !amount) {
-      console.log("❌ Code yoki amount kiritilmagan");
       return res.status(400).json({
         status: "error",
         message: "code va amount kiritish majburiy",
       });
     }
 
-    // Amount ni tekshirish
     if (+amount < 100) {
       return res.status(400).json({
         status: "error",
@@ -804,38 +565,27 @@ router.post("/get-copy-link", async (req, res) => {
 
     const findCopyWithCode = await copyModel.findOne({ code: code });
     if (!findCopyWithCode) {
-      console.log(`❌ Copy topilmadi: code=${code}`);
-      return res.status(404).json({
-        status: "error",
-        message: "Copy topilmadi",
-      });
+      return res.status(404).json({ status: "error", message: "Copy topilmadi" });
     }
 
-    // Copy allaqachon to'langanligini tekshirish
     const existingPayment = await paidModel.findOne({
       "serviceData._id": findCopyWithCode._id,
       status: "paid",
     });
 
     if (existingPayment) {
-      console.log(`❌ Copy allaqachon to'langan: code=${code}`);
       return res.status(400).json({
         status: "error",
         message: "Bu copy uchun to'lov allaqachon amalga oshirilgan",
       });
     }
 
-    // TO'G'RI Click URL format
-    const qrCode = `https://my.click.uz/services/pay?service_id=${SERVICE_ID}&merchant_id=${MERCHANT_ID}&amount=${amount}&transaction_param=${findCopyWithCode._id}`;
+    // Dinamik credentials
+    const creds = await getClickCredentials(findCopyWithCode.apparatId);
+    const serviceId = creds?.serviceId || FALLBACK_SERVICE_ID;
+    const merchantId = creds?.merchantId || FALLBACK_MERCHANT_ID;
 
-    console.log(`✅ Copy QR kod yaratildi:`, {
-      copyId: findCopyWithCode._id,
-      code,
-      apparatId: findCopyWithCode.apparatId,
-      amount,
-      service_id: SERVICE_ID,
-      merchant_id: MERCHANT_ID,
-    });
+    const qrCode = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${findCopyWithCode._id}`;
 
     return res.json({
       status: "success",
@@ -848,26 +598,17 @@ router.post("/get-copy-link", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Get copy link xatolik:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
+    console.error("Get copy link xatolik:", error);
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
 // Test endpoint
 router.get("/test", (req, res) => {
-  console.log("🧪 Test endpoint ishga tushdi");
   res.json({
     status: "success",
-    message: "Click router ishlayapti",
+    message: "Click router ishlayapti (dinamik credentials)",
     timestamp: new Date().toISOString(),
-    config: {
-      SERVICE_ID,
-      MERCHANT_ID,
-      SECRET_KEY_SET: !!CLICK_SECRET_KEY,
-    },
   });
 });
 

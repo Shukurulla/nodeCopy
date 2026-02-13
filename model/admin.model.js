@@ -1,6 +1,14 @@
-// model/admin.model.js (yangi fayl)
 import mongoose from "mongoose";
 import crypto from "crypto";
+
+// Shifrlangan credential uchun sub-schema
+const encryptedFieldSchema = new mongoose.Schema(
+  {
+    iv: { type: String },
+    encryptedData: { type: String },
+  },
+  { _id: false }
+);
 
 const adminSchema = new mongoose.Schema(
   {
@@ -12,11 +20,34 @@ const adminSchema = new mongoose.Schema(
     password: {
       type: String,
       required: true,
-      select: false, // Password qaytarilmasin
+      select: false,
     },
     salt: {
       type: String,
       select: false,
+    },
+    role: {
+      type: String,
+      enum: ["superadmin", "admin"],
+      default: "admin",
+    },
+    firstName: {
+      type: String,
+      required: true,
+    },
+    lastName: {
+      type: String,
+      required: true,
+    },
+    phone: {
+      type: String,
+      required: true,
+    },
+    clickCredentials: {
+      secretKey: encryptedFieldSchema,
+      serviceId: encryptedFieldSchema,
+      merchantId: encryptedFieldSchema,
+      merchantUserId: encryptedFieldSchema,
     },
     isActive: {
       type: Boolean,

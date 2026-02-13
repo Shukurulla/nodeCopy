@@ -1,11 +1,22 @@
-// router/statistika.routes.js (qo'shimcha guruh route bilan)
 import express from "express";
 import Statistika from "../model/statistika.model.js";
+import VendingApparat from "../model/vendingApparat.model.js";
+import { authMiddleware } from "./admin.routes.js";
 
 const router = express.Router();
 
+// Admin uchun ruxsat etilgan apparatIdlarni olish
+async function getAdminApparatIds(admin) {
+  if (admin.role === "superadmin") return null; // null = hamma
+  const apparatlar = await VendingApparat.find(
+    { adminId: admin.id },
+    { apparatId: 1 }
+  );
+  return apparatlar.map((a) => a.apparatId);
+}
+
 // Umumiy statistikani olish
-router.get("/", async (req, res) => {
+router.get("/", authMiddleware, async (req, res) => {
   try {
     const { davr, apparatId } = req.query;
 
@@ -33,23 +44,31 @@ router.get("/", async (req, res) => {
     ) {
       const boshlanish = new Date(req.query.boshlanishSana);
       boshlanish.setHours(0, 0, 0, 0);
-
       const tugash = new Date(req.query.tugashSana);
       tugash.setHours(23, 59, 59, 999);
-
       sanaFilter.sana = { $gte: boshlanish, $lte: tugash };
     }
 
-    const filter = {
-      ...sanaFilter,
-    };
+    const filter = { ...sanaFilter };
 
     if (apparatId && apparatId !== "all") {
       filter.apparatId = apparatId;
     }
 
-    const statistika = await Statistika.find(filter).sort({ sana: 1 });
+    // Role-based filter
+    const ruxsatApparatlar = await getAdminApparatIds(req.admin);
+    if (ruxsatApparatlar !== null) {
+      if (filter.apparatId) {
+        // Agar tanlangan apparat admin niki emasligini tekshirish
+        if (!ruxsatApparatlar.includes(filter.apparatId)) {
+          return res.json({ muvaffaqiyat: true, malumot: [] });
+        }
+      } else {
+        filter.apparatId = { $in: ruxsatApparatlar };
+      }
+    }
 
+    const statistika = await Statistika.find(filter).sort({ sana: 1 });
     res.json({ muvaffaqiyat: true, malumot: statistika });
   } catch (error) {
     res.status(500).json({ muvaffaqiyat: false, xabar: error.message });
@@ -57,18 +76,16 @@ router.get("/", async (req, res) => {
 });
 
 // Statistikani davr bo'yicha guruhlash
-router.get("/guruh", async (req, res) => {
+router.get("/guruh", authMiddleware, async (req, res) => {
   try {
     const { davr, apparatId } = req.query;
 
     const match = {};
 
-    // Apparatni filtrlash
     if (apparatId && apparatId !== "all") {
       match.apparatId = apparatId;
     }
 
-    // Davrni filtrlash
     const bugun = new Date();
 
     if (davr === "kun") {
@@ -92,14 +109,23 @@ router.get("/guruh", async (req, res) => {
     ) {
       const boshlanish = new Date(req.query.boshlanishSana);
       boshlanish.setHours(0, 0, 0, 0);
-
       const tugash = new Date(req.query.tugashSana);
       tugash.setHours(23, 59, 59, 999);
-
       match.sana = { $gte: boshlanish, $lte: tugash };
     }
 
-    // Guruhlanish formati
+    // Role-based filter
+    const ruxsatApparatlar = await getAdminApparatIds(req.admin);
+    if (ruxsatApparatlar !== null) {
+      if (match.apparatId) {
+        if (!ruxsatApparatlar.includes(match.apparatId)) {
+          return res.json({ muvaffaqiyat: true, malumot: [] });
+        }
+      } else {
+        match.apparatId = { $in: ruxsatApparatlar };
+      }
+    }
+
     let groupFormat;
     if (davr === "kun") {
       groupFormat = { $dateToString: { format: "%Y-%m-%d", date: "$sana" } };
@@ -108,11 +134,9 @@ router.get("/guruh", async (req, res) => {
     } else if (davr === "yil") {
       groupFormat = { $dateToString: { format: "%Y", date: "$sana" } };
     } else {
-      // Default - kunlik
       groupFormat = { $dateToString: { format: "%Y-%m-%d", date: "$sana" } };
     }
 
-    // MongoDB Aggregation orqali ma'lumotlarni guruhlash
     const guruhlanganStatistika = await Statistika.aggregate([
       { $match: match },
       {
@@ -133,14 +157,13 @@ router.get("/guruh", async (req, res) => {
   }
 });
 
-// Apparatlar bo'yicha statistikani olish (har bir apparat uchun umumiy statistika)
-router.get("/apparatlar", async (req, res) => {
+// Apparatlar bo'yicha statistikani olish
+router.get("/apparatlar", authMiddleware, async (req, res) => {
   try {
     const { davr } = req.query;
 
     const match = {};
 
-    // Davrni filtrlash
     const bugun = new Date();
 
     if (davr === "kun") {
@@ -164,14 +187,17 @@ router.get("/apparatlar", async (req, res) => {
     ) {
       const boshlanish = new Date(req.query.boshlanishSana);
       boshlanish.setHours(0, 0, 0, 0);
-
       const tugash = new Date(req.query.tugashSana);
       tugash.setHours(23, 59, 59, 999);
-
       match.sana = { $gte: boshlanish, $lte: tugash };
     }
 
-    // Apparatlar bo'yicha guruhlash
+    // Role-based filter
+    const ruxsatApparatlar = await getAdminApparatIds(req.admin);
+    if (ruxsatApparatlar !== null) {
+      match.apparatId = { $in: ruxsatApparatlar };
+    }
+
     const apparatlarStatistikasi = await Statistika.aggregate([
       { $match: match },
       {
@@ -193,11 +219,10 @@ router.get("/apparatlar", async (req, res) => {
 });
 
 // Kunlik statistikani olish (so'nggi 30 kun)
-router.get("/kunlik", async (req, res) => {
+router.get("/kunlik", authMiddleware, async (req, res) => {
   try {
     const { apparatId } = req.query;
 
-    // So'nggi 30 kun uchun
     const bugun = new Date();
     const ottizKunOldin = new Date();
     ottizKunOldin.setDate(bugun.getDate() - 30);
@@ -209,6 +234,18 @@ router.get("/kunlik", async (req, res) => {
 
     if (apparatId && apparatId !== "all") {
       match.apparatId = apparatId;
+    }
+
+    // Role-based filter
+    const ruxsatApparatlar = await getAdminApparatIds(req.admin);
+    if (ruxsatApparatlar !== null) {
+      if (match.apparatId) {
+        if (!ruxsatApparatlar.includes(match.apparatId)) {
+          return res.json({ muvaffaqiyat: true, malumot: [] });
+        }
+      } else {
+        match.apparatId = { $in: ruxsatApparatlar };
+      }
     }
 
     const kunlikStatistika = await Statistika.aggregate([

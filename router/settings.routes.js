@@ -1,6 +1,7 @@
 import express from "express";
 import Settings from "../model/settings.model.js";
 import { authMiddleware } from "./admin.routes.js";
+import { requireSuperAdmin } from "../middleware/roleMiddleware.js";
 
 const router = express.Router();
 
@@ -27,8 +28,8 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Narxlarni yangilash (faqat admin uchun)
-router.put("/", authMiddleware, async (req, res) => {
+// Narxlarni yangilash (faqat superadmin uchun)
+router.put("/", authMiddleware, requireSuperAdmin, async (req, res) => {
   try {
     const {
       printOneSide,
