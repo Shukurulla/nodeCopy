@@ -36,7 +36,15 @@ mongoose
 
 // ============ EXPRESS + SOCKET.IO ============
 const app = express();
-app.use(cors({ origin: "*" }));
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  })
+);
+app.options("*", cors());
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
